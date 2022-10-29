@@ -1,0 +1,22 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{B98CAB9E-4807-5BDC-0F7E-78848AE436D7}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "Gravity",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}
