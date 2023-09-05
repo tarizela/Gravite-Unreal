@@ -9,17 +9,20 @@
 #include <Widgets/Layout/SSplitter.h>
 #include <PropertyEditorModule.h>
 #include <DetailsViewArgs.h>
-#include <Misc/FileHelper.h>
 #include <HAL/FileManagerGeneric.h>
 #include <Serialization/JsonReader.h>
 #include <Serialization/JsonSerializer.h>
 #include <Dom/JsonValue.h>
 #include <Dom/JsonObject.h>
 #include <Misc/DefaultValueHelper.h>
+#include <Misc/ScopedSlowTask.h>
+#include <Misc/FileHelper.h>
 #include <AssetToolsModule.h>
 #include <Modules/ModuleManager.h>
 #include <Factories/FbxFactory.h>
 #include <Factories/FbxImportUI.h>
+#include <Factories/FbxStaticMeshImportData.h>
+#include <Engine/StaticMesh.h>
 #include <AssetImportTask.h>
 
 DEFINE_LOG_CATEGORY(LogGravityAssetImporter)
@@ -388,8 +391,8 @@ void SGravityAssetImporter::Construct(const FArguments& Args)
 		.HAlign(HAlign_Right)
 		[
 			SNew(SButton)
-			.ContentPadding(FEditorStyle::GetMargin("StandardDialog.ContentPadding"))
-			.ButtonStyle(FEditorStyle::Get(), "FlatButton.Success")
+			.ContentPadding(FAppStyle::GetMargin("StandardDialog.ContentPadding"))
+			.ButtonStyle(FAppStyle::Get(), "FlatButton.Success")
 			.ForegroundColor(FLinearColor::White)
 			.ToolTipText(LOCTEXT("TooltipText", "Import assets into project"))
 			.Text(LOCTEXT("ImportButtonText", "Import"))
@@ -427,13 +430,20 @@ void SGravityAssetImporter::ImportMeshes()
 
 	UFbxImportUI* fbxImportUI = NewObject<UFbxImportUI>();
 
+	fbxImportUI->MeshTypeToImport = EFBXImportType::FBXIT_StaticMesh;
 	fbxImportUI->bImportMaterials = false;
 	fbxImportUI->bImportTextures = false;
 	fbxImportUI->bCreatePhysicsAsset = false;
+	fbxImportUI->bAutomatedImportShouldDetectType = false;
+	fbxImportUI->bOverrideFullName = false;
+
+	fbxImportUI->StaticMeshImportData->VertexColorImportOption = EVertexColorImportOption::Replace;
+	fbxImportUI->StaticMeshImportData->bAutoGenerateCollision = false;
 
 	UFbxFactory* fbxFactory = UFbxFactory::StaticClass()->GetDefaultObject<UFbxFactory>();
 
 	TArray<UAssetImportTask*> assetImportTasks;
+	TArray<FGravityAssetImporterAssetInfoPtr> gravityAssetInfos;
 
 	for (const auto& assetImportInfo : AssetListView->GravityAssetImportInfos)
 	{
@@ -456,10 +466,86 @@ void SGravityAssetImporter::ImportMeshes()
 			fbxFactory->AssetImportTask = assetImportTask;
 
 			assetImportTasks.Emplace(assetImportTask);
+
+			gravityAssetInfos.Emplace(assetImportInfo->AssetInfo);
 		}
 	}
 
 	assetToolsModule.Get().ImportAssetTasks(assetImportTasks);
+
+	FScopedSlowTask SlowTask(assetImportTasks.Num(), LOCTEXT("ModifySlowTask", "Modify"));
+	SlowTask.MakeDialog();
+
+	for (int32 i = 0; i < assetImportTasks.Num(); ++i)
+	{
+		UAssetImportTask* assetImportTask = assetImportTasks[i];
+		FGravityAssetImporterAssetInfoPtr gravityAssetInfo = gravityAssetInfos[i];
+
+		const FString& assetFilename = FPaths::GetBaseFilename(assetImportTask->Filename);
+
+		SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("Modify_ModifyingAsset", "Modifying \"{0}\"..."), FText::FromString(assetFilename)));
+
+		int32 numImportedObjects = assetImportTask->ImportedObjectPaths.Num();
+
+		for (int32 k = 0; k < numImportedObjects; ++k)
+		{
+			const FString& importedObjectPath = assetImportTask->ImportedObjectPaths[k];
+
+			UStaticMesh* importedStaticMesh = LoadObject<UStaticMesh>(nullptr, *importedObjectPath, nullptr, LOAD_EditorOnly, nullptr);
+
+			// add SM_ prefix to the static mesh
+			FString newAssetFilename;
+
+			if (numImportedObjects > 1)
+			{
+				newAssetFilename = FString::Format(TEXT("SM_{0}_{1}"), { assetFilename,  FString::Printf(TEXT("%.2d"), k) });
+			}
+			else
+			{
+				newAssetFilename = FString::Format(TEXT("SM_{0}"), { assetFilename });
+			}
+
+			if (importedStaticMesh->Rename(*newAssetFilename, nullptr, REN_ForceGlobalUnique | REN_Test))
+			{
+				importedStaticMesh->Rename(*newAssetFilename, nullptr, REN_DoNotDirty | REN_DontCreateRedirectors | REN_ForceGlobalUnique);
+			}
+			else
+			{
+				UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not rename asset '%s' to '%s' because the new name is already in use."),
+					*(importedStaticMesh->GetName()), *newAssetFilename);
+			}
+
+			ModifyImportedStaticMesh(importedStaticMesh);
+
+			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos);
+		}
+	}
+}
+
+void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
+{
+	//importedStaticMesh->Modify();
+	//importedStaticMesh->NaniteSettings.bEnabled = true;
+	//importedStaticMesh->PostEditChange();
+}
+
+void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos)
+{
+	const TArray<FStaticMaterial> staticMaterials = StaticMesh->GetStaticMaterials();
+
+	for (const auto& staticMaterial : staticMaterials)
+	{
+		FString materialSlotName = staticMaterial.MaterialSlotName.ToString();
+		const FGravityAssetImporterMaterialInfo* gravityMaterialInfo = MaterialInfos.Find(materialSlotName);
+
+		if (gravityMaterialInfo)
+		{
+		}
+		else
+		{
+			UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find material info for material slot '%s' of mesh '%s'."), *materialSlotName, *(StaticMesh->GetName()));
+		}
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

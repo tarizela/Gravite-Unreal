@@ -28,7 +28,7 @@ public:
 		SMultiColumnTableRow<FGravityImporterListViewRowInfoPtr>::Construct
 		(
 			FSuperRowType::FArguments()
-			.Style(FEditorStyle::Get(), "DataTableEditor.CellListViewRow"),
+			.Style(FAppStyle::Get(), "DataTableEditor.CellListViewRow"),
 			InOwnerTableView
 		);
 	}

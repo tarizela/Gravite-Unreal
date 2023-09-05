@@ -21,7 +21,7 @@ void FGravityToolsModule::StartupModule()
 		.SetDisplayName(LOCTEXT("TabTitle", "Gravity Asset Importer"))
 		.SetTooltipText(LOCTEXT("TooltipText", "Tool for importing GR2 assets which were exported via the GR2 blender exporter script"))
 		.SetGroup(WorkspaceMenu::GetMenuStructure().GetToolsCategory())
-		.SetIcon(FSlateIcon(FEditorStyle::GetStyleSetName(), TEXT("ClassIcon.UserDefinedStruct")));
+		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.UserDefinedStruct")));
 }
 
 void FGravityToolsModule::ShutdownModule()

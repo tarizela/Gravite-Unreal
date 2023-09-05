@@ -7,9 +7,9 @@
 DECLARE_LOG_CATEGORY_EXTERN(LogGravityAssetImporter, Display, All)
 
 class IDetailsView;
+class UStaticMesh;
 class UGravityAssetImporterArguments;
 class SGravityAssetImporterListView;
-
 class FGravityAssetImporterMaterialParameterFloat;
 class FGravityAssetImporterMaterialParameterString;
 
@@ -50,7 +50,7 @@ protected:
 	const float* AsFloat() const override { return &Value; }
 
 private:
-	float Value;
+	float Value = 0.0f;
 };
 
 class FGravityAssetImporterMaterialParameterString final : public FGravityAssetImporterMaterialParameter
@@ -75,8 +75,8 @@ class FGravityAssetImporterTextureInfo
 public:
 	FString Name;
 
-	FVector2D UVOffset;
-	FVector2D UVScale;
+	FVector2D UVOffset = FVector2D::ZeroVector;
+	FVector2D UVScale = FVector2D::ZeroVector;
 
 	TStaticArray<float, 3> Parameters;
 };
@@ -129,12 +129,13 @@ public:
 
 private:
 	void RebuildAssetListView();
-	
 	FReply OnImportClicked();
 
 	virtual void NotifyPostChange(const FPropertyChangedEvent& PropertyChangedEvent, FProperty* PropertyThatChanged) override;
 
 	void ImportMeshes();
+	void ModifyImportedStaticMesh(UStaticMesh* StaticMesh);
+	void CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos);
 
 private:
 	TSharedPtr<IDetailsView> ArgumentsDetailsView;

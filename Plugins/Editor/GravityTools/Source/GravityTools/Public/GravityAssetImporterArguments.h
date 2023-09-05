@@ -18,4 +18,7 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Output Content Directory", Tooltip = "Path to the output directory in game content."))
 	FDirectoryPath OutputContentDir;
+
+	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Directory containing the base materials", Tooltip = "Path to the output directory in game content."))
+	FDirectoryPath BaseMaterialDir;
 };
