@@ -17,7 +17,9 @@
 #include <Misc/DefaultValueHelper.h>
 #include <Misc/ScopedSlowTask.h>
 #include <Misc/FileHelper.h>
+#include <FileHelpers.h>
 #include <AssetToolsModule.h>
+#include <AssetRegistry/AssetRegistryModule.h>
 #include <Modules/ModuleManager.h>
 #include <Factories/FbxFactory.h>
 #include <Factories/FbxImportUI.h>
@@ -462,6 +464,7 @@ void SGravityAssetImporter::ImportMeshes()
 			assetImportTask->Filename = assetImportInfo->AssetFilePath;
 			assetImportTask->DestinationPath = outputMeshContentDir;
 			assetImportTask->Factory = fbxFactory;
+			assetImportTask->DestinationName = TEXT("SM"); // static mesh prefix
 
 			fbxFactory->AssetImportTask = assetImportTask;
 
@@ -493,40 +496,21 @@ void SGravityAssetImporter::ImportMeshes()
 
 			UStaticMesh* importedStaticMesh = LoadObject<UStaticMesh>(nullptr, *importedObjectPath, nullptr, LOAD_EditorOnly, nullptr);
 
-			// add SM_ prefix to the static mesh
-			FString newAssetFilename;
-
-			if (numImportedObjects > 1)
-			{
-				newAssetFilename = FString::Format(TEXT("SM_{0}_{1}"), { assetFilename,  FString::Printf(TEXT("%.2d"), k) });
-			}
-			else
-			{
-				newAssetFilename = FString::Format(TEXT("SM_{0}"), { assetFilename });
-			}
-
-			if (importedStaticMesh->Rename(*newAssetFilename, nullptr, REN_ForceGlobalUnique | REN_Test))
-			{
-				importedStaticMesh->Rename(*newAssetFilename, nullptr, REN_DoNotDirty | REN_DontCreateRedirectors | REN_ForceGlobalUnique);
-			}
-			else
-			{
-				UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not rename asset '%s' to '%s' because the new name is already in use."),
-					*(importedStaticMesh->GetName()), *newAssetFilename);
-			}
+			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos);
 
 			ModifyImportedStaticMesh(importedStaticMesh);
 
-			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos);
+			// save the imported mesh later
+			UEditorLoadingAndSavingUtils::SavePackages({ importedStaticMesh->GetPackage() }, true);
 		}
 	}
 }
 
 void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
 {
-	//importedStaticMesh->Modify();
-	//importedStaticMesh->NaniteSettings.bEnabled = true;
-	//importedStaticMesh->PostEditChange();
+	//StaticMesh->Modify();
+	//StaticMesh->NaniteSettings.bEnabled = true;
+	//StaticMesh->PostEditChange();
 }
 
 void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos)
