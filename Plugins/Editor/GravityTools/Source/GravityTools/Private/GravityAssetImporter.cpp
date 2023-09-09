@@ -10,6 +10,7 @@
 #include <PropertyEditorModule.h>
 #include <DetailsViewArgs.h>
 #include <HAL/FileManagerGeneric.h>
+#include <HAL/IConsoleManager.h>
 #include <Serialization/JsonReader.h>
 #include <Serialization/JsonSerializer.h>
 #include <Dom/JsonValue.h>
@@ -439,6 +440,16 @@ FReply SGravityAssetImporter::OnImportClicked()
 
 void SGravityAssetImporter::ImportMeshes()
 {
+	// disable pipeline state object (PSO) precaching because it will consume a lot of RAM during batch import
+	static const auto CVarPSOPrecaching = IConsoleManager::Get().FindConsoleVariable(TEXT("r.PSOPrecaching"));
+
+	int32 savedPSOPrecachingValue = CVarPSOPrecaching->GetInt();
+
+	if (savedPSOPrecachingValue != 0)
+	{
+		CVarPSOPrecaching->Set(0);
+	}
+
 	UFbxImportUI* fbxImportUI = NewObject<UFbxImportUI>();
 
 	fbxImportUI->MeshTypeToImport = EFBXImportType::FBXIT_StaticMesh;
@@ -506,9 +517,11 @@ void SGravityAssetImporter::ImportMeshes()
 
 		const TArray<UObject*>& importedObjects = assetImportTask->GetObjects();
 
+		UStaticMesh* importedStaticMesh = nullptr;
+
 		for (UObject* importedObject : importedObjects)
 		{
-			UStaticMesh* importedStaticMesh = Cast<UStaticMesh>(importedObject);
+			importedStaticMesh = Cast<UStaticMesh>(importedObject);
 
 			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos);
 
@@ -524,15 +537,19 @@ void SGravityAssetImporter::ImportMeshes()
 		assetImportTask = nullptr;
 
 		// cleanup after 32 imports
-		if (numCompletedImportsSinceLastGC == 32)
+		//if (numCompletedImportsSinceLastGC == 32)
 		{
 			fbxFactory->CleanUp();
+
 			// force garbace collection so we able to load new objects.
 			CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
 			numCompletedImportsSinceLastGC = 0;
 		}
 	}
+
+	// reenable PSO precaching if it was previously enabled
+	CVarPSOPrecaching->Set(savedPSOPrecachingValue);
 }
 
 void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
