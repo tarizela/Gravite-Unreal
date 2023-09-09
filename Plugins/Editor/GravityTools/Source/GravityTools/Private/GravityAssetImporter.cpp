@@ -554,9 +554,9 @@ void SGravityAssetImporter::ImportMeshes()
 
 void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
 {
-	//StaticMesh->Modify();
-	//StaticMesh->NaniteSettings.bEnabled = true;
-	//StaticMesh->PostEditChange();
+	StaticMesh->Modify();
+	StaticMesh->NaniteSettings.bEnabled = true;
+	StaticMesh->PostEditChange();
 }
 
 void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos)
