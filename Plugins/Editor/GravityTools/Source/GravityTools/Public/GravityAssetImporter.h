@@ -8,6 +8,8 @@ DECLARE_LOG_CATEGORY_EXTERN(LogGravityAssetImporter, Display, All)
 
 class IDetailsView;
 class UStaticMesh;
+class UMaterialInstance;
+class IAssetTools;
 class UGravityAssetImporterArguments;
 class SGravityAssetImporterListView;
 class FGravityAssetImporterMaterialParameterFloat;
@@ -123,6 +125,7 @@ class SGravityAssetImporter : public SCompoundWidget, public FNotifyHook
 	SLATE_END_ARGS()
 
 public:
+	SGravityAssetImporter();
 	~SGravityAssetImporter();
 
 	void Construct(const FArguments& Args);
@@ -136,10 +139,16 @@ private:
 	void ImportMeshes();
 	void ModifyImportedStaticMesh(UStaticMesh* StaticMesh);
 	void CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos);
+	UMaterialInstance* GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo);
 
 private:
 	TSharedPtr<IDetailsView> ArgumentsDetailsView;
 	TSharedPtr<SGravityAssetImporterListView> AssetListView;
 
 	TStrongObjectPtr<UGravityAssetImporterArguments> Arguments;
+
+	IAssetTools* AssetTools = nullptr;
+
+	/** A registry of created materials */
+	TMap<FString, FString> MaterialRegistry;
 };
