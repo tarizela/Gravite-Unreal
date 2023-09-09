@@ -537,7 +537,7 @@ void SGravityAssetImporter::ImportMeshes()
 		assetImportTask = nullptr;
 
 		// cleanup after 32 imports
-		//if (numCompletedImportsSinceLastGC == 32)
+		if (numCompletedImportsSinceLastGC == 16)
 		{
 			fbxFactory->CleanUp();
 
