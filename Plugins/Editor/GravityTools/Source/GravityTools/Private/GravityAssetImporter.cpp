@@ -328,6 +328,14 @@ SGravityAssetImporter::SGravityAssetImporter()
 	FAssetToolsModule& assetToolsModule = FModuleManager::Get().LoadModuleChecked<FAssetToolsModule>("AssetTools");
 
 	AssetTools = &(assetToolsModule.Get());
+
+	// disable pipeline state object (PSO) precaching because it will consume a lot of RAM during batch import
+	const auto CVarPSOPrecaching = IConsoleManager::Get().FindConsoleVariable(TEXT("r.PSOPrecaching"));
+
+	if (CVarPSOPrecaching->GetInt() != 0)
+	{
+		UE_LOG(LogGravityAssetImporter, Warning, TEXT("PSOPrecaching is enabled. You might run out of RAM during a batch import. Set r.PSOPrecaching to 0 in the engine config."));
+	}
 }
 
 SGravityAssetImporter::~SGravityAssetImporter()
@@ -440,16 +448,6 @@ FReply SGravityAssetImporter::OnImportClicked()
 
 void SGravityAssetImporter::ImportMeshes()
 {
-	// disable pipeline state object (PSO) precaching because it will consume a lot of RAM during batch import
-	static const auto CVarPSOPrecaching = IConsoleManager::Get().FindConsoleVariable(TEXT("r.PSOPrecaching"));
-
-	int32 savedPSOPrecachingValue = CVarPSOPrecaching->GetInt();
-
-	if (savedPSOPrecachingValue != 0)
-	{
-		CVarPSOPrecaching->Set(0);
-	}
-
 	UFbxImportUI* fbxImportUI = NewObject<UFbxImportUI>();
 
 	fbxImportUI->MeshTypeToImport = EFBXImportType::FBXIT_StaticMesh;
@@ -547,9 +545,6 @@ void SGravityAssetImporter::ImportMeshes()
 			numCompletedImportsSinceLastGC = 0;
 		}
 	}
-
-	// reenable PSO precaching if it was previously enabled
-	CVarPSOPrecaching->Set(savedPSOPrecachingValue);
 }
 
 void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
