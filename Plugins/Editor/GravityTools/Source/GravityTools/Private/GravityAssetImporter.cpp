@@ -572,7 +572,7 @@ UMaterialInstance* SGravityAssetImporter::GetOrCreateMaterialInstance(const FGra
 		return LoadObject<UMaterialInstance>(nullptr, **materialFilePath, nullptr, LOAD_EditorOnly, nullptr);
 	}
 
-	// determine the type of base material an load it
+	// determine the type of base material and load it
 
 
 	return nullptr;
