@@ -1,3 +1,5 @@
+#pragma once
+
 #include "GravityBlueprintTools.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogGravityBlueprintTools, Display, All)
