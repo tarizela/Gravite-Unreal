@@ -299,14 +299,14 @@ def export_model(exportDir, modelDatabeseDir, materialDatabaseDir, modelName):
     
 if __name__ == '__main__':
     modelListFilePath = 'C:/Users/Zetta/Desktop/UE5Imports/LCModels.txt'
-    exportDir = 'C:/Users/Zetta/Desktop/UE5Imports/Export'
+    exportDir = 'C:/Users/caine/Documents/GitHub/Gravity/FBX'
     
-    modelDatabaseDir = 'C:/Users/Zetta/Documents/Unity Projects/GravityRush-VR-Experimental/Assets/Models'
-    materialDatabaseDir = 'C:/Users/Zetta/Documents/Unity Projects/GravityRush-VR-Experimental/Assets/Models/MaterialInfos'
+    modelDatabaseDir = 'F:/GravityRushVR/Gravity-Rush-VR-Experimental/Assets/Models'
+    materialDatabaseDir = 'F:/GravityRushVR/Gravity-Rush-VR-Experimental/Assets/Models/MaterialInfos'
     
-    modelList = []
-    with open(modelListFilePath, 'r') as fd:
-        modelList = fd.read().splitlines()
+    # modelList = []
+    # with open(modelListFilePath, 'r') as fd:
+    #     modelList = fd.read().splitlines()
         
     #for modelName in modelList:
     modelName = 'po_a_01a'

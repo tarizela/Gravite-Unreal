@@ -516,6 +516,8 @@ void SGravityAssetImporter::ImportMeshes()
 			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos);
 
 			ModifyImportedStaticMesh(importedStaticMesh);
+
+			UEditorLoadingAndSavingUtils::SavePackages({importedStaticMesh->GetPackage()}, true);
 		}
 
 		++numCompletedImportsSinceLastGC;
