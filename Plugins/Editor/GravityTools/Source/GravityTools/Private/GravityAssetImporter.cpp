@@ -328,6 +328,10 @@ SGravityAssetImporter::SGravityAssetImporter()
 	FAssetToolsModule& assetToolsModule = FModuleManager::Get().LoadModuleChecked<FAssetToolsModule>("AssetTools");
 
 	AssetTools = &(assetToolsModule.Get());
+
+	FAssetRegistryModule& assetRegistryModule = FModuleManager::Get().LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+
+	AssetRegistry = &(assetRegistryModule.Get());
 }
 
 SGravityAssetImporter::~SGravityAssetImporter()
@@ -440,6 +444,10 @@ FReply SGravityAssetImporter::OnImportClicked()
 
 void SGravityAssetImporter::ImportMeshes()
 {
+	// @todo - make this an importer option.
+	const bool bSkipImportedAssets = true;
+	const bool bSavePackages = true;
+
 	UFbxImportUI* fbxImportUI = NewObject<UFbxImportUI>();
 
 	fbxImportUI->MeshTypeToImport = EFBXImportType::FBXIT_StaticMesh;
@@ -463,13 +471,16 @@ void SGravityAssetImporter::ImportMeshes()
 
 	for (const auto& assetImportInfo : AssetListView->GravityAssetImportInfos)
 	{
-		if (assetImportInfo->bIsMarkedForImport)
+		FString meshFilename = assetImportInfo->AssetInfo->Name;
+		meshFilename.ToLowerInline();
+
+		FString outputMeshContentDir = FPaths::Combine(Arguments->OutputContentDir.Path, meshFilename);
+
+		// just check if the target import directory contains assets
+		const bool bShouldSkipThisAsset = bSkipImportedAssets && AssetRegistry->HasAssets(*outputMeshContentDir);
+
+		if (assetImportInfo->bIsMarkedForImport && !bShouldSkipThisAsset)
 		{
-			FString meshFilename = assetImportInfo->AssetInfo->Name;
-			meshFilename.ToLowerInline();
-
-			FString outputMeshContentDir = FPaths::Combine(Arguments->OutputContentDir.Path, meshFilename);
-
 			TObjectPtr<UAssetImportTask> assetImportTask = NewObject<UAssetImportTask>();
 			assetImportTask->bAutomated = true;
 			assetImportTask->Options = fbxImportUI;
@@ -524,7 +535,7 @@ void SGravityAssetImporter::ImportMeshes()
 		assetImportTask = nullptr;
 
 		// cleanup after performing a number of imports
-		if (numCompletedImportsSinceLastGC == 16)
+		if (numCompletedImportsSinceLastGC == 16 || !assetImportTasks.IsValidIndex(i + 1))
 		{
 			fbxFactory->CleanUp();
 
@@ -532,6 +543,11 @@ void SGravityAssetImporter::ImportMeshes()
 			CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
 			numCompletedImportsSinceLastGC = 0;
+
+			if (bSavePackages)
+			{
+				FEditorFileUtils::SaveDirtyPackages(false, false, true);
+			}
 		}
 	}
 }
@@ -565,15 +581,22 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 
 UMaterialInstance* SGravityAssetImporter::GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo)
 {
-	const FString* materialFilePath = MaterialRegistry.Find(MaterialInfo.Name);
+	const FString* registeredBaseMaterialFilePath = MaterialRegistry.Find(MaterialInfo.Name);
 
-	if (materialFilePath)
+	if (registeredBaseMaterialFilePath)
 	{
-		return LoadObject<UMaterialInstance>(nullptr, **materialFilePath, nullptr, LOAD_EditorOnly, nullptr);
+		return LoadObject<UMaterialInstance>(nullptr, **registeredBaseMaterialFilePath, nullptr, LOAD_EditorOnly, nullptr);
 	}
 
 	// determine the type of base material and load it
+	FString baseMaterialFilePath = FString::Format(TEXT("Material'{0}/M_Type{1}.M_Type{1}'"), { Arguments->BaseMaterialDir.Path, MaterialInfo.Type });
 
+	UMaterial* baseMaterial = LoadObject<UMaterial>(nullptr, *baseMaterialFilePath, nullptr, LOAD_EditorOnly, nullptr);
+
+	//if (!baseMaterial)
+	//{
+	//	UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find base material '%s' for material instance '%s'."), *
+	//}
 
 	return nullptr;
 }

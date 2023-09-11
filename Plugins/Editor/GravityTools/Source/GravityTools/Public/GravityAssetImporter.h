@@ -10,6 +10,7 @@ class IDetailsView;
 class UStaticMesh;
 class UMaterialInstance;
 class IAssetTools;
+class IAssetRegistry;
 class UGravityAssetImporterArguments;
 class SGravityAssetImporterListView;
 class FGravityAssetImporterMaterialParameterFloat;
@@ -148,6 +149,8 @@ private:
 	TStrongObjectPtr<UGravityAssetImporterArguments> Arguments;
 
 	IAssetTools* AssetTools = nullptr;
+
+	IAssetRegistry* AssetRegistry = nullptr;
 
 	/** A registry of created materials */
 	TMap<FString, FString> MaterialRegistry;
