@@ -31,9 +31,10 @@ def getObjectFromSubHandle(sub_handle: unreal.SubobjectDataHandle) -> unreal.Obj
     BFL = unreal.SubobjectDataBlueprintFunctionLibrary
     return BFL.get_object(BFL.get_data(sub_handle))
 
-def addComponentToBlueprint(blueprint: unreal.Blueprint,  new_class, name: str ) -> ( unreal.SubobjectDataHandle):
+def addComponentToBlueprint(blueprint: unreal.Blueprint,  new_class, name: str, root_data_handle: unreal.SubobjectDataHandle = None ) -> ( unreal.SubobjectDataHandle):
     subsystem: unreal.SubobjectDataSubsystem = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
-    root_data_handle: unreal.SubobjectDataHandle = subsystem.k2_gather_subobject_data_for_blueprint(context=blueprint)[0]
+    if root_data_handle == None:
+        root_data_handle: unreal.SubobjectDataHandle = subsystem.k2_gather_subobject_data_for_blueprint(context=blueprint)[0]
 
     sub_handle, fail_reason = subsystem.add_new_subobject(
         params=unreal.AddNewSubobjectParams(
@@ -99,6 +100,7 @@ def createBluepoint(modelName):
 
             mesh = unreal.EditorAssetLibrary.load_asset(assetPath)
             staticMeshComponent.set_static_mesh(new_mesh=mesh)
+            staticMeshComponent.set_mobility(unreal.ComponentMobility.STATIC)
 
             print("Added Static Mesh: " + assetPath)
 
@@ -137,13 +139,31 @@ def createBluepoint(modelName):
                     print("Load Child Blueprint: " + childActorPath)
                     childActorBP = unreal.EditorAssetLibrary.load_asset(childActorPath)
 
-                    subHandle = addComponentToBlueprint(blueprint=blueprint,  new_class=unreal.ChildActorComponent,  name=socketName[4:])
+                    subHandle = addComponentToBlueprint(blueprint=blueprint,  new_class=unreal.ChildActorComponent,  name=socketName[4:], root_data_handle=componentHandle)
                     childActorComponent = getObjectFromSubHandle(subHandle)
                     print("Child Actor Component: " + str(childActorComponent))
                     assert isinstance(childActorComponent, unreal.ChildActorComponent)
-
+    
                     childActorComponent.set_child_actor_class(childActorBP.generated_class())
-                    childActorComponent.k2_attach_to(component, socket, unreal.AttachLocation.SNAP_TO_TARGET_INCLUDING_SCALE, False)
+                    childActorComponent.set_mobility(unreal.ComponentMobility.STATIC)
+
+                    # Method 1 Attach to Socket
+                    # print("Was Attached to: " + str(childActorComponent.get_attach_socket_name())) 
+                    
+                    # attached = childActorComponent.attach_to_component(component, socketName, unreal.AttachmentRule.SNAP_TO_TARGET, unreal.AttachmentRule.SNAP_TO_TARGET, unreal.AttachmentRule.SNAP_TO_TARGET, False)
+
+                    # if not attached:
+                    #     unreal.log_warning("Failed to attach " + childActorComponent.get_name() + " to " + socketName)
+                    # else:
+                    #     unreal.log("Attached " + childActorComponent.get_name() + " to " + socketName)
+
+                    # print("Now Attached to: " + str(childActorComponent.get_attach_socket_name())) 
+
+
+                    # Method 2 Copy Translation from Socket
+                    childActorComponent.set_relative_transform(component.get_socket_transform(socket), False, True)
+
+                    childActorComponent.add_relative_rotation(unreal.Rotator(90, 180, 0), False, True)
 
         # SAVE
         unreal.EditorAssetLibrary.save_asset(blueprintPath)
