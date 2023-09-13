@@ -153,7 +153,4 @@ private:
 	IAssetTools* AssetTools = nullptr;
 
 	IAssetRegistry* AssetRegistry = nullptr;
-
-	/** A registry of created materials */
-	TMap<FString, FString> MaterialRegistry;
 };

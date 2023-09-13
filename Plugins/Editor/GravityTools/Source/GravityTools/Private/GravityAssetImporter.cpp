@@ -218,6 +218,11 @@ static FGravityAssetImporterAssetInfoPtr LoadGravityAssetInfoFromDirectory(const
 
 				materialTextureInfo.Name = jsonMaterialTextureName->AsString();
 
+				if (materialTextureInfo.Name.Compare(TEXT("No Texture"), ESearchCase::IgnoreCase) == 0)
+				{
+					continue;
+				}
+
 				const TArray<TSharedPtr<FJsonValue>>* jsonMaterialTexureParameters = nullptr;
 
 				if (!jsonMaterialTextureObject->TryGetArrayField(GravityAssetImporterAssetInfoID::MaterialTextureParameters, jsonMaterialTexureParameters))
@@ -529,8 +534,7 @@ void SGravityAssetImporter::ImportMeshes()
 		{
 			importedStaticMesh = Cast<UStaticMesh>(importedObject);
 
-			// WIP do not use
-			//CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos, materialInstanceDir);
+			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos, materialInstanceDir);
 
 			ModifyImportedStaticMesh(importedStaticMesh);
 
@@ -569,7 +573,18 @@ void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
 
 UTexture* SGravityAssetImporter::ImportTexture(const FString& TextureFilePath)
 {
-	const FString textureFileName = FPaths::GetBaseFilename(TextureFilePath);
+	const FString& outputTextureDir = Arguments->OutputTextureDir.Path;
+	const FString textureName = FPaths::GetBaseFilename(TextureFilePath);
+	const FString textureFileName = FString::Printf(TEXT("T_%s"), *textureName);
+
+	FString textureFilePath = FString::Format(TEXT("Texture'{0}/{1}.{1}'"), { outputTextureDir, textureFileName });
+
+	TObjectPtr<UTexture> loadedTexture = LoadObject<UTexture>(nullptr, *textureFilePath, nullptr, LOAD_EditorOnly, nullptr);
+
+	if (loadedTexture)
+	{
+		return loadedTexture;
+	}
 
 	TObjectPtr<UTextureFactory> textureFactory = UTextureFactory::StaticClass()->GetDefaultObject<UTextureFactory>();
 
@@ -578,9 +593,9 @@ UTexture* SGravityAssetImporter::ImportTexture(const FString& TextureFilePath)
 	assetImportTask->bReplaceExisting = true;
 	assetImportTask->bSave = false;
 	assetImportTask->Filename = TextureFilePath;
-	assetImportTask->DestinationPath = Arguments->OutputTextureDir.Path;
+	assetImportTask->DestinationPath = outputTextureDir;
 	assetImportTask->Factory = textureFactory;
-	assetImportTask->DestinationName = FString::Printf(TEXT("T_%s"), *textureFileName);
+	assetImportTask->DestinationName = textureFileName;
 
 	AssetTools->ImportAssetTasks({ assetImportTask });
 
@@ -625,16 +640,61 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 
 		materialInstance->GetAllTextureParameterInfo(textureParameterInfos, textureParameterIDs);
 
-		if (textureParameterInfos.Num() != gravityMaterialInfo->Textures.Num())
-		{
-			UE_LOG(LogGravityAssetImporter, Warning,
-				TEXT("The material '%s' of mesh '%s' has an invalid number of texture channels. Textures for missing channels will be ignored."),
-				*(gravityMaterialInfo->Name), *(StaticMesh->GetName()));
-		}
+		// @fixme - fix this check
+		//if (textureParameterInfos.Num() != gravityMaterialInfo->Textures.Num())
+		//{
+		//	UE_LOG(LogGravityAssetImporter, Warning,
+		//		TEXT("The material '%s' of mesh '%s' has an invalid number of texture channels. Textures for missing channels will be ignored."),
+		//		*(gravityMaterialInfo->Name), *(StaticMesh->GetName()));
+		//}
 
 		// @todo - assign debugging material for broken material setups
 
 		staticMaterial.MaterialInterface = materialInstance;
+
+		// import and assign textures to material channels
+
+		// @fixme - setup only material M_Type23 for now
+		if (gravityMaterialInfo->Type != TEXT("23"))
+		{
+			continue;
+		}
+
+		// @fixme - remove this lambda
+		auto GetTextureChannelByIndexLambda = [&textureParameterInfos](int32 Index, bool& bIsSecondaryTexture, bool& bIsEmissiveMaskTexture) -> const FMaterialParameterInfo*
+		{
+			const TCHAR* textureChannelName = nullptr;
+
+			bIsEmissiveMaskTexture = false;
+			bIsSecondaryTexture = false;
+
+			switch (Index)
+			{
+			case 1: { textureChannelName = TEXT("Albedo");											} break;
+			case 2: { textureChannelName = TEXT("Normal");											} break;
+			case 3: { textureChannelName = TEXT("EmissionMask");	bIsEmissiveMaskTexture = true;  } break;
+			case 4: { textureChannelName = TEXT("SecondaryAlbedo"); bIsSecondaryTexture = true;     } break;
+			case 5: { textureChannelName = TEXT("SecondaryNormal"); bIsSecondaryTexture = true;     } break;
+			}
+
+			if (!textureChannelName)
+			{
+				return nullptr;
+			}
+
+			for (const auto& textureParameterInfo : textureParameterInfos)
+			{
+				if (textureParameterInfo.Name == textureChannelName)
+				{
+					return &textureParameterInfo;
+				}
+			}
+
+			return nullptr;
+		};
+
+		bool bIsMaterialLayered = false;
+		bool bIsMaterialEmissive = false;
 
 		FString sourceTextureFilePath;
 
@@ -642,8 +702,18 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 		{
 			int32 textureChannelIndex = entry.Key;
 
-			if (!textureParameterInfos.IsValidIndex(textureChannelIndex))
+			bool bIsSecondaryTexture = false;
+			bool bIsEmissiveMaskTexture = false;
+
+			const FMaterialParameterInfo* textureParameterInfo = GetTextureChannelByIndexLambda(textureChannelIndex, bIsSecondaryTexture, bIsEmissiveMaskTexture);
+
+			bIsMaterialLayered |= bIsSecondaryTexture;
+			bIsMaterialEmissive |= bIsEmissiveMaskTexture;
+
+			if (!textureParameterInfo)
 			{
+				UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find appropriate texture channel in material '%s'."), *(gravityMaterialInfo->Name));
+
 				continue;
 			}
 
@@ -655,21 +725,32 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 
 			if (importedTexture)
 			{
-				const auto& materialParameterInfo = textureParameterInfos[textureChannelIndex];
-
-				materialInstance->SetTextureParameterValueEditorOnly(materialParameterInfo, importedTexture);
+				materialInstance->SetTextureParameterValueEditorOnly(*textureParameterInfo, importedTexture);
 			}
+		}
+
+		if (bIsMaterialLayered)
+		{
+			materialInstance->SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Layered")), bIsMaterialLayered);
+		}
+
+		if (bIsMaterialEmissive)
+		{
+			materialInstance->SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Emissive")), bIsMaterialEmissive);
 		}
 	}
 }
 
 UMaterialInstanceConstant* SGravityAssetImporter::GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo, const FString& MaterialInstancePackageDir)
 {
-	const FString* registeredBaseMaterialFilePath = MaterialRegistry.Find(MaterialInfo.Name);
+	FString materialInstanceName = TEXT("MI_") + MaterialInfo.Name.Replace(TEXT(" "), TEXT("_"), ESearchCase::CaseSensitive);
+	FString materialInstanceFilePath = FString::Format(TEXT("MaterialInstanceConstant'{0}/{1}.{1}'"), { MaterialInstancePackageDir, materialInstanceName });
 
-	if (registeredBaseMaterialFilePath)
+	TObjectPtr<UMaterialInstanceConstant> materialInstance = LoadObject<UMaterialInstanceConstant>(nullptr, *materialInstanceFilePath, nullptr, LOAD_EditorOnly, nullptr);
+
+	if (materialInstance)
 	{
-		return LoadObject<UMaterialInstanceConstant>(nullptr, **registeredBaseMaterialFilePath, nullptr, LOAD_EditorOnly, nullptr);
+		return materialInstance;
 	}
 
 	// determine the type of base material and load it
@@ -687,19 +768,13 @@ UMaterialInstanceConstant* SGravityAssetImporter::GetOrCreateMaterialInstance(co
 	UMaterialInstanceConstantFactoryNew* materialInstanceFactory = UMaterialInstanceConstantFactoryNew::StaticClass()->GetDefaultObject<UMaterialInstanceConstantFactoryNew>();
 	materialInstanceFactory->InitialParent = baseMaterial;
 
-	FString materialInstanceName = TEXT("MI_") + MaterialInfo.Name.Replace(TEXT(" "), TEXT("_"), ESearchCase::CaseSensitive);
-
-	TObjectPtr<UMaterialInstanceConstant> materialInstance = Cast<UMaterialInstanceConstant>(
-		AssetTools->CreateAsset(materialInstanceName, MaterialInstancePackageDir, UMaterialInstanceConstant::StaticClass(), materialInstanceFactory));
+	materialInstance = Cast<UMaterialInstanceConstant>(AssetTools->CreateAsset(
+		materialInstanceName, MaterialInstancePackageDir, UMaterialInstanceConstant::StaticClass(), materialInstanceFactory));
 
 	if (!materialInstance)
 	{
 		UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not create a material instance for material '%s'."), *MaterialInfo.Name);
 	}
-
-	FString materialInstanceFilePath = FString::Format(TEXT("MaterialInstanceConstant'{0}/{1}.{1}'"), { MaterialInstancePackageDir, materialInstanceName });
-
-	MaterialRegistry.Emplace(MaterialInfo.Name, materialInstanceFilePath);
 
 	return materialInstance;
 }
