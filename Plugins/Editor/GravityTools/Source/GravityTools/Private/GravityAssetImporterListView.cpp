@@ -90,6 +90,7 @@ void SGravityAssetImporterListView::Construct(const FArguments& Args)
 				SNew(SCheckBox)
 				.HAlign(EHorizontalAlignment::HAlign_Center)
 				.OnCheckStateChanged(this, &SGravityAssetImporterListView::OnToggleMarkAllAssetsForImport)
+				.IsChecked(ECheckBoxState::Checked)
 			]
 
 			+ SHeaderRow::Column(GravityAssetImporterListViewID::HeaderColumnAssetName)

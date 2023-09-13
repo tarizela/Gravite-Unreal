@@ -38,6 +38,8 @@ public class GravityTools : ModuleRules
 				"EditorStyle",
 				"InputCore",
 				"UnrealEd",
+				"RenderCore",
+				"RHI",
 			}
 			);
 		

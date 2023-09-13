@@ -25,8 +25,11 @@
 #include <Factories/FbxFactory.h>
 #include <Factories/FbxImportUI.h>
 #include <Factories/FbxStaticMeshImportData.h>
+#include <Factories/MaterialInstanceConstantFactoryNew.h>
+#include <Factories/TextureFactory.h>
 #include <Engine/StaticMesh.h>
 #include <AssetImportTask.h>
+#include <Materials/MaterialInstanceConstant.h>
 
 DEFINE_LOG_CATEGORY(LogGravityAssetImporter)
 
@@ -150,6 +153,13 @@ static FGravityAssetImporterAssetInfoPtr LoadGravityAssetInfoFromDirectory(const
 		FGravityAssetImporterMaterialInfo materialInfo;
 
 		materialInfo.Name = materialObjectEntry.Key;
+
+		if (materialInfo.Name.IsEmpty())
+		{
+			UE_LOG(LogGravityAssetImporter, Warning, TEXT("The asset '%s' has a material with no name. The material will not be processed."), *gravityAssetInfo->Name);
+
+			return nullptr;
+		}
 
 		const TSharedPtr<FJsonObject>& jsonMaterialObject = materialObjectEntry.Value->AsObject();
 
@@ -343,7 +353,7 @@ void SGravityAssetImporter::RebuildAssetListView()
 {
 	TArray<FGravityImporterListViewRowInfoPtr> gravityAssetImportInfos;
 
-	if (LoadGravityAssetsFromDirectory(Arguments->AssetRootDir.Path, gravityAssetImportInfos))
+	if (LoadGravityAssetsFromDirectory(Arguments->SourceMeshDir.Path, gravityAssetImportInfos))
 	{
 		AssetListView->GravityAssetImportInfos = MoveTemp(gravityAssetImportInfos);
 
@@ -429,7 +439,7 @@ void SGravityAssetImporter::NotifyPostChange(const FPropertyChangedEvent& Proper
 		return;
 	}
 
-	if (PropertyChangedEvent.MemberProperty->GetName() == TEXT("AssetRootDir"))
+	if (PropertyChangedEvent.MemberProperty->GetName() == GET_MEMBER_NAME_CHECKED(UGravityAssetImporterArguments, SourceMeshDir))
 	{
 		RebuildAssetListView();
 	}
@@ -444,10 +454,6 @@ FReply SGravityAssetImporter::OnImportClicked()
 
 void SGravityAssetImporter::ImportMeshes()
 {
-	// @todo - make this an importer option.
-	const bool bSkipImportedAssets = true;
-	const bool bSavePackages = true;
-
 	UFbxImportUI* fbxImportUI = NewObject<UFbxImportUI>();
 
 	fbxImportUI->MeshTypeToImport = EFBXImportType::FBXIT_StaticMesh;
@@ -474,10 +480,10 @@ void SGravityAssetImporter::ImportMeshes()
 		FString meshFilename = assetImportInfo->AssetInfo->Name;
 		meshFilename.ToLowerInline();
 
-		FString outputMeshContentDir = FPaths::Combine(Arguments->OutputContentDir.Path, meshFilename);
+		FString outputMeshContentDir = FPaths::Combine(Arguments->OutputModelDir.Path, meshFilename);
 
 		// just check if the target import directory contains assets
-		const bool bShouldSkipThisAsset = bSkipImportedAssets && AssetRegistry->HasAssets(*outputMeshContentDir);
+		const bool bShouldSkipThisAsset = Arguments->bSkipImportedAssets && AssetRegistry->HasAssets(*outputMeshContentDir);
 
 		if (assetImportInfo->bIsMarkedForImport && !bShouldSkipThisAsset)
 		{
@@ -489,7 +495,7 @@ void SGravityAssetImporter::ImportMeshes()
 			assetImportTask->Filename = assetImportInfo->AssetFilePath;
 			assetImportTask->DestinationPath = outputMeshContentDir;
 			assetImportTask->Factory = fbxFactory;
-			assetImportTask->DestinationName = TEXT("SM"); // static mesh prefix
+			assetImportTask->DestinationName = TEXT("SM"); // the static mesh prefix will be appended to the mesh name
 
 			assetImportTask->AddToRoot();
 
@@ -511,20 +517,20 @@ void SGravityAssetImporter::ImportMeshes()
 		AssetTools->ImportAssetTasks({ assetImportTask });
 
 		FGravityAssetImporterAssetInfoPtr gravityAssetInfo = gravityAssetInfos[i];
-
 		const FString& assetFilename = FPaths::GetBaseFilename(assetImportTask->Filename);
 
 		SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("Modify_ModifyingAsset", "Modifying \"{0}\"..."), FText::FromString(assetFilename)));
 
 		const TArray<UObject*>& importedObjects = assetImportTask->GetObjects();
-
 		UStaticMesh* importedStaticMesh = nullptr;
+		FString materialInstanceDir = FPaths::Combine(*assetImportTask->DestinationPath, TEXT("Materials"));
 
 		for (UObject* importedObject : importedObjects)
 		{
 			importedStaticMesh = Cast<UStaticMesh>(importedObject);
 
-			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos);
+			// WIP do not use
+			//CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos, materialInstanceDir);
 
 			ModifyImportedStaticMesh(importedStaticMesh);
 
@@ -537,7 +543,7 @@ void SGravityAssetImporter::ImportMeshes()
 		assetImportTask = nullptr;
 
 		// cleanup after performing a number of imports
-		if (numCompletedImportsSinceLastGC == 16 || !assetImportTasks.IsValidIndex(i + 1))
+		if (numCompletedImportsSinceLastGC == Arguments->SavedPackageBatchSize || !assetImportTasks.IsValidIndex(i + 1))
 		{
 			fbxFactory->CleanUp();
 
@@ -546,7 +552,7 @@ void SGravityAssetImporter::ImportMeshes()
 
 			numCompletedImportsSinceLastGC = 0;
 
-			if (bSavePackages)
+			if (Arguments->bSavePackages)
 			{
 				FEditorFileUtils::SaveDirtyPackages(false, false, true);
 			}
@@ -561,33 +567,109 @@ void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
 	StaticMesh->PostEditChange();
 }
 
-void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos)
+UTexture* SGravityAssetImporter::ImportTexture(const FString& TextureFilePath)
 {
-	const TArray<FStaticMaterial> staticMaterials = StaticMesh->GetStaticMaterials();
+	const FString textureFileName = FPaths::GetBaseFilename(TextureFilePath);
 
-	for (const auto& staticMaterial : staticMaterials)
+	TObjectPtr<UTextureFactory> textureFactory = UTextureFactory::StaticClass()->GetDefaultObject<UTextureFactory>();
+
+	TObjectPtr<UAssetImportTask> assetImportTask = NewObject<UAssetImportTask>();
+	assetImportTask->bAutomated = true;
+	assetImportTask->bReplaceExisting = true;
+	assetImportTask->bSave = false;
+	assetImportTask->Filename = TextureFilePath;
+	assetImportTask->DestinationPath = Arguments->OutputTextureDir.Path;
+	assetImportTask->Factory = textureFactory;
+	assetImportTask->DestinationName = FString::Printf(TEXT("T_%s"), *textureFileName);
+
+	AssetTools->ImportAssetTasks({ assetImportTask });
+
+	TArray<UObject*> importedObjects = assetImportTask->GetObjects();
+
+	if (importedObjects.IsEmpty())
+	{
+		UE_LOG(LogGravityAssetImporter, Warning, TEXT("Failed to load texture '%s'."), *TextureFilePath);
+
+		return nullptr;
+	}
+
+	return Cast<UTexture>(importedObjects[0]);
+}
+
+void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos, const FString& MaterialInstancePackageDir)
+{
+	TArray<FStaticMaterial>& staticMaterials = StaticMesh->GetStaticMaterials();
+
+	FScopedSlowTask SlowTask(staticMaterials.Num(), LOCTEXT("SetupMaterialsSlowTask", "SetupMaterials"));
+	SlowTask.MakeDialog();
+
+	for (auto& staticMaterial : staticMaterials)
 	{
 		FString materialSlotName = staticMaterial.MaterialSlotName.ToString();
 		const FGravityAssetImporterMaterialInfo* gravityMaterialInfo = MaterialInfos.Find(materialSlotName);
 
-		if (gravityMaterialInfo)
-		{
-
-		}
-		else
+		if (!gravityMaterialInfo)
 		{
 			UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find material info for material slot '%s' of mesh '%s'."), *materialSlotName, *(StaticMesh->GetName()));
+
+			continue;
+		}
+
+		SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("SetupMaterials_CreateMaterial", "Creating \"{0}\"..."), FText::FromString(materialSlotName)));
+
+		TObjectPtr<UMaterialInstanceConstant> materialInstance = GetOrCreateMaterialInstance(*gravityMaterialInfo, MaterialInstancePackageDir);
+
+		// sanity check if the material has the correct number of texture channels.
+		TArray<FMaterialParameterInfo> textureParameterInfos;
+		TArray<FGuid> textureParameterIDs;
+
+		materialInstance->GetAllTextureParameterInfo(textureParameterInfos, textureParameterIDs);
+
+		if (textureParameterInfos.Num() != gravityMaterialInfo->Textures.Num())
+		{
+			UE_LOG(LogGravityAssetImporter, Warning,
+				TEXT("The material '%s' of mesh '%s' has an invalid number of texture channels. Textures for missing channels will be ignored."),
+				*(gravityMaterialInfo->Name), *(StaticMesh->GetName()));
+		}
+
+		// @todo - assign debugging material for broken material setups
+
+		staticMaterial.MaterialInterface = materialInstance;
+
+		FString sourceTextureFilePath;
+
+		for (const auto& entry : gravityMaterialInfo->Textures)
+		{
+			int32 textureChannelIndex = entry.Key;
+
+			if (!textureParameterInfos.IsValidIndex(textureChannelIndex))
+			{
+				continue;
+			}
+
+			const FGravityAssetImporterTextureInfo& textureInfo = entry.Value;
+
+			sourceTextureFilePath = FPaths::Combine(Arguments->SourceTextureDir.Path, textureInfo.Name + TEXT(".png"));
+
+			TObjectPtr<UTexture> importedTexture = ImportTexture(sourceTextureFilePath);
+
+			if (importedTexture)
+			{
+				const auto& materialParameterInfo = textureParameterInfos[textureChannelIndex];
+
+				materialInstance->SetTextureParameterValueEditorOnly(materialParameterInfo, importedTexture);
+			}
 		}
 	}
 }
 
-UMaterialInstance* SGravityAssetImporter::GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo)
+UMaterialInstanceConstant* SGravityAssetImporter::GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo, const FString& MaterialInstancePackageDir)
 {
 	const FString* registeredBaseMaterialFilePath = MaterialRegistry.Find(MaterialInfo.Name);
 
 	if (registeredBaseMaterialFilePath)
 	{
-		return LoadObject<UMaterialInstance>(nullptr, **registeredBaseMaterialFilePath, nullptr, LOAD_EditorOnly, nullptr);
+		return LoadObject<UMaterialInstanceConstant>(nullptr, **registeredBaseMaterialFilePath, nullptr, LOAD_EditorOnly, nullptr);
 	}
 
 	// determine the type of base material and load it
@@ -595,12 +677,31 @@ UMaterialInstance* SGravityAssetImporter::GetOrCreateMaterialInstance(const FGra
 
 	UMaterial* baseMaterial = LoadObject<UMaterial>(nullptr, *baseMaterialFilePath, nullptr, LOAD_EditorOnly, nullptr);
 
-	//if (!baseMaterial)
-	//{
-	//	UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find base material '%s' for material instance '%s'."), *
-	//}
+	if (!baseMaterial)
+	{
+		UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find base material '%s' for material instance '%s'."), *baseMaterialFilePath, *MaterialInfo.Name);
 
-	return nullptr;
+		return nullptr;
+	}
+
+	UMaterialInstanceConstantFactoryNew* materialInstanceFactory = UMaterialInstanceConstantFactoryNew::StaticClass()->GetDefaultObject<UMaterialInstanceConstantFactoryNew>();
+	materialInstanceFactory->InitialParent = baseMaterial;
+
+	FString materialInstanceName = TEXT("MI_") + MaterialInfo.Name.Replace(TEXT(" "), TEXT("_"), ESearchCase::CaseSensitive);
+
+	TObjectPtr<UMaterialInstanceConstant> materialInstance = Cast<UMaterialInstanceConstant>(
+		AssetTools->CreateAsset(materialInstanceName, MaterialInstancePackageDir, UMaterialInstanceConstant::StaticClass(), materialInstanceFactory));
+
+	if (!materialInstance)
+	{
+		UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not create a material instance for material '%s'."), *MaterialInfo.Name);
+	}
+
+	FString materialInstanceFilePath = FString::Format(TEXT("MaterialInstanceConstant'{0}/{1}.{1}'"), { MaterialInstancePackageDir, materialInstanceName });
+
+	MaterialRegistry.Emplace(MaterialInfo.Name, materialInstanceFilePath);
+
+	return materialInstance;
 }
 
 #undef LOCTEXT_NAMESPACE

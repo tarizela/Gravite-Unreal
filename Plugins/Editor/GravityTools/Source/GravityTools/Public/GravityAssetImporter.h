@@ -8,7 +8,8 @@ DECLARE_LOG_CATEGORY_EXTERN(LogGravityAssetImporter, Display, All)
 
 class IDetailsView;
 class UStaticMesh;
-class UMaterialInstance;
+class UTexture;
+class UMaterialInstanceConstant;
 class IAssetTools;
 class IAssetRegistry;
 class UGravityAssetImporterArguments;
@@ -138,9 +139,10 @@ private:
 	virtual void NotifyPostChange(const FPropertyChangedEvent& PropertyChangedEvent, FProperty* PropertyThatChanged) override;
 
 	void ImportMeshes();
+	UTexture* ImportTexture(const FString& TextureFilePath);
 	void ModifyImportedStaticMesh(UStaticMesh* StaticMesh);
-	void CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos);
-	UMaterialInstance* GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo);
+	void CreateMaterials(UStaticMesh* StaticMesh, const TMap<FString, FGravityAssetImporterMaterialInfo>& MaterialInfos, const FString& MaterialInstancePackageDir);
+	UMaterialInstanceConstant* GetOrCreateMaterialInstance(const FGravityAssetImporterMaterialInfo& MaterialInfo, const FString& MaterialInstancePackageDir);
 
 private:
 	TSharedPtr<IDetailsView> ArgumentsDetailsView;
