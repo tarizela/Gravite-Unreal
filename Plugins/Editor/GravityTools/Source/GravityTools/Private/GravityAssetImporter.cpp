@@ -84,7 +84,7 @@ static FGravityAssetImporterAssetInfoPtr LoadGravityAssetInfoFromDirectory(const
 
 	if (!FFileHelper::LoadFileToString(jsonAssetInfoString, *assetInfoFilePath))
 	{
-		UE_LOG(LogGravityAssetImporter, Warning, TEXT("Skipping asset directory: '%s'. The directory must contain a '%s'.json file."), *AssetDirectory, *assetName);
+		UE_LOG(LogGravityAssetImporter, Warning, TEXT("Skipping asset directory: '%s'. The directory must contain a '%s.json' file."), *AssetDirectory, *assetName);
 
 		return nullptr;
 	}
@@ -537,8 +537,6 @@ void SGravityAssetImporter::ImportMeshes()
 			CreateMaterials(importedStaticMesh, gravityAssetInfo->MaterialInfos, materialInstanceDir);
 
 			ModifyImportedStaticMesh(importedStaticMesh);
-
-			UEditorLoadingAndSavingUtils::SavePackages({importedStaticMesh->GetPackage()}, true);
 		}
 
 		++numCompletedImportsSinceLastGC;
@@ -566,7 +564,6 @@ void SGravityAssetImporter::ImportMeshes()
 
 void SGravityAssetImporter::ModifyImportedStaticMesh(UStaticMesh* StaticMesh)
 {
-	StaticMesh->Modify();
 	StaticMesh->NaniteSettings.bEnabled = true;
 	StaticMesh->PostEditChange();
 }
@@ -622,7 +619,6 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 	{
 		FString materialSlotName = staticMaterial.MaterialSlotName.ToString();
 		const FGravityAssetImporterMaterialInfo* gravityMaterialInfo = MaterialInfos.Find(materialSlotName);
-
 		if (!gravityMaterialInfo)
 		{
 			UE_LOG(LogGravityAssetImporter, Warning, TEXT("Could not find material info for material slot '%s' of mesh '%s'."), *materialSlotName, *(StaticMesh->GetName()));
@@ -631,6 +627,12 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 		}
 
 		SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("SetupMaterials_CreateMaterial", "Creating \"{0}\"..."), FText::FromString(materialSlotName)));
+
+		// @fixme - setup only material M_Type23 for now
+		if (gravityMaterialInfo->Type != TEXT("23"))
+		{
+			continue;
+		}
 
 		TObjectPtr<UMaterialInstanceConstant> materialInstance = GetOrCreateMaterialInstance(*gravityMaterialInfo, MaterialInstancePackageDir);
 
@@ -653,12 +655,6 @@ void SGravityAssetImporter::CreateMaterials(UStaticMesh* StaticMesh, const TMap<
 		staticMaterial.MaterialInterface = materialInstance;
 
 		// import and assign textures to material channels
-
-		// @fixme - setup only material M_Type23 for now
-		if (gravityMaterialInfo->Type != TEXT("23"))
-		{
-			continue;
-		}
 
 		// @fixme - remove this lambda
 		auto GetTextureChannelByIndexLambda = [&textureParameterInfos](int32 Index, bool& bIsSecondaryTexture, bool& bIsEmissiveMaskTexture) -> const FMaterialParameterInfo*
