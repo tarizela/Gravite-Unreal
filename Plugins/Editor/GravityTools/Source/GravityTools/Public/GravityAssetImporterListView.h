@@ -7,10 +7,13 @@
 
 struct FGravityImporterListViewRowInfo
 {
-	FGravityAssetImporterAssetInfoPtr AssetInfo;
+	/** Path to the directory containing the source assets. */
+	FString SourceDir;
 
-	FString AssetFilePath;
+	/** The name of the asset to import. */
+	FString AssetName;
 
+	/** True if the asset should be imported. */
 	bool bIsMarkedForImport;
 };
 

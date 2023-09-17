@@ -49,8 +49,8 @@ public:
 		else if (ColumnName == GravityAssetImporterListViewID::HeaderColumnAssetName)
 		{
 			return SNew(STextBlock)
-				.Text(FText::FromString(RowInfo->AssetInfo->Name))
-				.ToolTipText(FText::FromString(RowInfo->AssetInfo->Name));
+				.Text(FText::FromString(RowInfo->AssetName))
+				.ToolTipText(FText::FromString(RowInfo->AssetName));
 		}
 
 		return SNullWidget::NullWidget;

@@ -19,21 +19,18 @@ public:
 	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, DisplayName = "Source texture directory", Tooltip = "Path to the directory containing the source textures."))
 	FDirectoryPath SourceTextureDir;
 
-	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Output model directory", Tooltip = "Path to the directory for storing mesh and material assets."))
-	FDirectoryPath OutputModelDir;
+	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Directory containing the base materials", Tooltip = "Path to the output directory in game content."))
+	FDirectoryPath BaseMaterialDir;
+
+	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Output mesh directory", Tooltip = "Path to the directory for storing meshes."))
+	FDirectoryPath OutputMeshDir;
 
 	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Output texture directory", Tooltip = "Path to the directory for storing texture assets."))
 	FDirectoryPath OutputTextureDir;
 
-	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, ContentDir, DisplayName = "Directory containing the base materials", Tooltip = "Path to the output directory in game content."))
-	FDirectoryPath BaseMaterialDir;
+	UPROPERTY(EditAnywhere, Category = OptionalArguments, meta = (EditorConfig, DisplayName = "Size of the import batch", Tooltip = "The importer will process a batch of import tasks, then save the created assets if requested and do a cleanup."))
+	uint32 ImportBatchSize;
 
-	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, DisplayName = "Number of batch saved packages", Tooltip = "The importer will batch the save request."))
-	uint32 SavedPackageBatchSize;
-
-	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, DisplayName = "Save imported packages", Tooltip = "Save packages after a number of imports."))
+	UPROPERTY(EditAnywhere, Category = OptionalArguments, meta = (EditorConfig, DisplayName = "Save imported packages", Tooltip = "Save packages after a number of imports."))
 	bool bSavePackages;
-
-	UPROPERTY(EditAnywhere, Category = RequiredArguments, meta = (EditorConfig, DisplayName = "Skip imported  assets", Tooltip = "Skip assets that were already imported. The importer will skip the import if the asset directory exists and contains any assets."))
-	bool bSkipImportedAssets;
 };

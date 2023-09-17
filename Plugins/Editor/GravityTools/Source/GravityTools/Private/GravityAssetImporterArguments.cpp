@@ -2,11 +2,10 @@
 
 UGravityAssetImporterArguments::UGravityAssetImporterArguments()
 {
-	OutputModelDir.Path = TEXT("/Game");
-	OutputTextureDir.Path = TEXT("/Game");
-	BaseMaterialDir.Path = TEXT("/Game");
+	OutputMeshDir.Path = TEXT("/Game");
+	OutputTextureDir.Path = TEXT("/Game/Textures");
+	BaseMaterialDir.Path = TEXT("/Game/BaseMaterials");
 
-	bSkipImportedAssets = false;
+	ImportBatchSize = 16;
 	bSavePackages = false;
-	SavedPackageBatchSize = 16;
 }
