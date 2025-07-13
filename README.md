@@ -34,7 +34,7 @@ The repo should only contain source code, and Unreal assets. Do not push source 
 Things that should be pushed:
 * Source code
 * Unreal assets (.uasset)
-* ThirdParty Dependencies
+* ThirdParty dependencies
 
 Things **not** to store:
 * Source assets (.fbx, .png, .mp3, etc.)
