@@ -180,6 +180,7 @@ FReply SGravityAssetImporter::OnImportClicked()
 	importTask.BaseMaterialDir = Arguments->BaseMaterialDir.Path;
 	importTask.OutputMeshDir = Arguments->OutputMeshDir.Path;
 	importTask.OutputTextureDir = Arguments->OutputTextureDir.Path;
+	importTask.OutputMaterialDir = Arguments->OutputMaterialDir.Path;
 
 	for (const auto& assetImportInfo : AssetListView->GravityAssetImportInfos)
 	{
@@ -191,7 +192,7 @@ FReply SGravityAssetImporter::OnImportClicked()
 		}
 	}
 
-	UGravityAssetTools::ImportAssetTasks(importTasks, Arguments->ImportBatchSize, Arguments->bSavePackages);
+	UGravityAssetTools::ImportAssetTasks(importTasks, Arguments->ImportBatchSize, Arguments->bSavePackages, Arguments->bSaveExtractedParallaxMaps, Arguments->bPatchAssets);
 
 	return FReply::Handled();
 }

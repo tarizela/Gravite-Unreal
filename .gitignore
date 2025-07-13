@@ -72,7 +72,5 @@ Intermediate/*
 Plugins/*/Intermediate/*
 Plugins/Editor/*/Intermediate/*
 
-# Cache files for the editor to use
-DerivedDataCache/*
-FBX
-*.zip
+# Developer content
+Developers
