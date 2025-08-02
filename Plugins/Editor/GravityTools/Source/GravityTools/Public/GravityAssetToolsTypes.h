@@ -102,8 +102,35 @@ enum class EGravityMaterialParameterType : int32
 	ColorG1,
 	ColorB1,
 
-	AlphaTest
+	Roughness2,
+	Metallic2,
+	Specular2,
+	EmissionBoost2,
+	ParallaxHeight2,
+	ColorR2,
+	ColorG2,
+	ColorB2,
+
+	Roughness3,
+	Metallic3,
+	Specular3,
+	EmissionBoost3,
+	ParallaxHeight3,
+	ColorR3,
+	ColorG3,
+	ColorB3,
+
+	AlphaTest,
+	IOR,
+	Opacity,
+
+	PositionOffsetX,
+	PositionOffsetY,
+	PositionOffsetZ,
+	BoundingSphereRadius
 };
+
+ENUM_RANGE_BY_FIRST_AND_LAST(EGravityMaterialParameterType, EGravityMaterialParameterType::PresetType, EGravityMaterialParameterType::BoundingSphereRadius);
 
 enum class EGravityMaterialFlags : uint8
 {
@@ -129,6 +156,10 @@ public:
 
 	/** Is set to true if this texture will be assigned to a normal map channel. */
 	bool bIsNormalMap = false;
+
+	/** Texture address mode to use. */
+	TEnumAsByte<TextureAddress> AddressX = TextureAddress::TA_Wrap;
+	TEnumAsByte<TextureAddress> AddressY = TextureAddress::TA_Wrap;
 
 	/** UV offset. */
 	FVector2D UVOffset = FVector2D::ZeroVector;
@@ -166,6 +197,9 @@ public:
 
 	/** name of the material */
 	FString Name;
+
+	/** if the material can be shared with other assets */
+	bool bIsShareable = false;
 
 private:
 	/** various parameters of the material */

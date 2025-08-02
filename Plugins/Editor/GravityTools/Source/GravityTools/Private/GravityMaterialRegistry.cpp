@@ -24,9 +24,10 @@ static bool operator==(const FGravityMaterialInfo& Lhs, const FGravityMaterialIn
 {
 	// we do not check the name of the material because it can be different even when the material parameters are the same
 
-	if (Lhs.Type != Rhs.Type)				{ return false; }
-	if (Lhs.TypeString != Rhs.TypeString)	{ return false; }
-	if (Lhs.Flags != Rhs.Flags)				{ return false; }
+	if (Lhs.bIsShareable != Rhs.bIsShareable)	{ return false; }
+	if (Lhs.Type != Rhs.Type)					{ return false; }
+	if (Lhs.TypeString != Rhs.TypeString)		{ return false; }
+	if (Lhs.Flags != Rhs.Flags)					{ return false; }
 
 	auto IsMaterialParameterSameLambda = [&Lhs, &Rhs](EGravityMaterialParameterType ParameterType)
 	{
@@ -70,24 +71,13 @@ static bool operator==(const FGravityMaterialInfo& Lhs, const FGravityMaterialIn
 		return true;
 	};
 
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::PresetType))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::Roughness0))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::Metallic0))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::Specular0))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::EmissionBoost0))	{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ParallaxHeight0))	{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::Roughness1))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::Metallic1))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::Specular1))		{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::EmissionBoost1))	{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ParallaxHeight1))	{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ColorR0))			{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ColorG0))			{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ColorB0))			{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ColorR1))			{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ColorG1))			{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::ColorB1))			{ return false; }
-	if (!IsMaterialParameterSameLambda(EGravityMaterialParameterType::AlphaTest))		{ return false; }
+	for (EGravityMaterialParameterType parameter : TEnumRange<EGravityMaterialParameterType>())
+	{
+		if (!IsMaterialParameterSameLambda(parameter))
+		{
+			return false;
+		}
+	}
 
 	const auto& textureInfosLhs = Lhs.GetTextureInfos();
 	const auto& textureInfosRhs = Rhs.GetTextureInfos();

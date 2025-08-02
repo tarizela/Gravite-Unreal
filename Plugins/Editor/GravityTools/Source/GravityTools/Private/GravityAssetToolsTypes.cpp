@@ -209,16 +209,6 @@ FString GravityMaterialParameterTypeToString(EGravityMaterialParameterType Type)
 	return "Unknown";
 }
 
-FString GravityMaterialChannelTypeToString(int32 Channel)
-{
-	if (Channel >= 0)
-	{
-		return FString::Format(TEXT("Texture{0}"), { Channel });
-	}
-
-	return "Unknown";
-}
-
 const FGravityMaterialParameter* FGravityMaterialInfo::GetParameter(EGravityMaterialParameterType ParameterType) const
 {
 	const FGravityMaterialParameterPtr* foundParameter = Parameters.Find(ParameterType);

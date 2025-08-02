@@ -188,18 +188,45 @@ static EGravityMaterialParameterType ParameterIndexToGravityMaterialParameterTyp
 	}break;
 	case EGravityMaterialType::Decal:
 	{
-		// @todo - nee to figure out where the emission and color are stored
 		switch (ParameterIndex)
 		{
+		case 0:	 return EGravityMaterialParameterType::Unknown; // Decal scale X (ignore it, it's already applied to the decal socket)
+		case 1:	 return EGravityMaterialParameterType::Unknown; // Decal scale Y (ignore it, it's already applied to the decal socket)
+		case 2:	 return EGravityMaterialParameterType::Unknown; // Decal scale Z (ignore it, it's already applied to the decal socket)
+		case 3:	 return EGravityMaterialParameterType::ColorR0;
+		case 4:	 return EGravityMaterialParameterType::ColorG0;
+		case 5:	 return EGravityMaterialParameterType::ColorB0;
+		case 7:	 return EGravityMaterialParameterType::Opacity;
 		case 9:  return EGravityMaterialParameterType::Roughness0;
 		case 10: return EGravityMaterialParameterType::Metallic0;
 		case 11: return EGravityMaterialParameterType::Specular0;
 		case 12: return EGravityMaterialParameterType::AlphaTest;
 		}
 	}break;
-	case EGravityMaterialType::Window:
 	case EGravityMaterialType::Glass:
+	{
+		switch (ParameterIndex)
+		{
+		case 0: return EGravityMaterialParameterType::IOR;
+		case 1: return EGravityMaterialParameterType::Opacity;
+		case 2: return EGravityMaterialParameterType::ColorR0;
+		case 3: return EGravityMaterialParameterType::ColorG0;
+		case 4: return EGravityMaterialParameterType::ColorB0;
+		}
+	}break;
+	case EGravityMaterialType::GravityCrystal:
+	{
+		switch (ParameterIndex)
+		{
+		case 0: return EGravityMaterialParameterType::PositionOffsetX;
+		case 1: return EGravityMaterialParameterType::PositionOffsetY;
+		case 2: return EGravityMaterialParameterType::PositionOffsetZ;
+		case 3: return EGravityMaterialParameterType::BoundingSphereRadius;
+		}
+	}break;
+	case EGravityMaterialType::Window:
 	case EGravityMaterialType::TV:
+	case EGravityMaterialType::TreeBranches:
 	{
 		// has no parameters
 	}break;
@@ -207,9 +234,42 @@ static EGravityMaterialParameterType ParameterIndexToGravityMaterialParameterTyp
 	{
 		// has two unknown parameters
 	}break;
+	case EGravityMaterialType::Translucent:
+	{
+		// has a bunch of parameter that we neet to figure out
+	}break;
+	case EGravityMaterialType::Grass:
+	{
+		// has a bunch of parameter that we neet to figure out
+	}break;
 	}
 
 	return EGravityMaterialParameterType::Unknown;
+}
+
+static TextureAddress GetTextureAddressMode(EGravityMaterialType MaterialType, int32 MaterialTextureChannel)
+{
+	switch (MaterialType)
+	{
+	case EGravityMaterialType::Window:
+	{
+		// The curtain texture requires a special address mode.
+		if (MaterialTextureChannel == 3)
+		{
+			return TextureAddress::TA_Clamp;
+		}
+	}break;
+	case EGravityMaterialType::GravityCrystal:
+	{
+		// The crystal must have wrapping disabled.
+		if (MaterialTextureChannel == 0)
+		{
+			return TextureAddress::TA_Clamp;
+		}
+	}break;
+	}
+
+	return TextureAddress::TA_Wrap;
 }
 
 static bool ParseMaterialParameters(const TArray<TSharedPtr<FJsonValue>>& ParameterValues, const FString& MaterialName, FGravityMaterialInfo& OutMaterialInfo)
@@ -232,26 +292,33 @@ static bool ParseMaterialParameters(const TArray<TSharedPtr<FJsonValue>>& Parame
 		OutMaterialInfo.Flags = materialFlags;
 	}
 
-	// idx 0: unknown
-	// idx 1: material flags
-	for (int32 i = 2; i < ParameterValues.Num(); ++i)
+	for (int32 i = 0; i < ParameterValues.Num(); ++i)
 	{
 		EGravityMaterialParameterType parameterType = ParameterIndexToGravityMaterialParameterType(OutMaterialInfo.Type, i);
 
-		const auto& jsonMaterialParameter = ParameterValues[i];
+		if (parameterType != EGravityMaterialParameterType::Unknown)
+		{
+			const auto& jsonMaterialParameter = ParameterValues[i];
 
-		switch (jsonMaterialParameter->Type)
-		{
-		case EJson::Number:	OutMaterialInfo.SetParameter(parameterType, MakeShared<FGravityMaterialParameterFloat>(jsonMaterialParameter->AsNumber())); break;
-		case EJson::String:	OutMaterialInfo.SetParameter(parameterType, MakeShared<FGravityMaterialParameterString>(jsonMaterialParameter->AsString())); break;
-		{
-		}break;
-		default:
-			UE_LOG(LogGravityAssetTools, Warning, TEXT("Encountered an unexpected material parameter data type. Material: '%s', Parameter idx: '%d'."), *MaterialName, i);
+			switch (jsonMaterialParameter->Type)
+			{
+			case EJson::Number:	OutMaterialInfo.SetParameter(parameterType, MakeShared<FGravityMaterialParameterFloat>(jsonMaterialParameter->AsNumber())); break;
+			case EJson::String:	OutMaterialInfo.SetParameter(parameterType, MakeShared<FGravityMaterialParameterString>(jsonMaterialParameter->AsString())); break;
+			{
+			}break;
+			default:
+				UE_LOG(LogGravityAssetTools, Warning, TEXT("Encountered an unexpected material parameter data type. Material: '%s', Parameter idx: '%d'."), *MaterialName, i);
+			}
 		}
 	}
 
 	return true;
+}
+
+static bool IsMaterialTypeShareable(EGravityMaterialType MaterialType)
+{
+	// The gravity crystal material depends on the size of the mesh section. We cannot share such materials with other meshes.
+	return MaterialType != EGravityMaterialType::GravityCrystal;
 }
 
 static bool IsAssetVersionSupported(const FString& AssetVersion)
@@ -418,6 +485,8 @@ static FGravityAssetInfoPtr LoadGravityAssetInfoFromDirectory(const FString& Ass
 			continue;
 		}
 
+		materialInfo.bIsShareable = IsMaterialTypeShareable(materialInfo.Type);
+
 		if (jsonMaterialObject->TryGetArrayField(GravityAssetInfoID::MaterialParameters, jsonMaterialParameters))
 		{
 			if (!ParseMaterialParameters(*jsonMaterialParameters, materialInfo.Name, materialInfo))
@@ -510,6 +579,8 @@ static FGravityAssetInfoPtr LoadGravityAssetInfoFromDirectory(const FString& Ass
 
 				materialTextureInfo.TextureChannel = TextureBindingIndexToMaterialTextureChannel(materialInfo.Type, textureChannelBinding);
 				materialTextureInfo.bIsNormalMap = IsGravityMaterialChannelNormalMap(materialInfo.Type, materialTextureInfo.TextureChannel);
+				materialTextureInfo.AddressX = GetTextureAddressMode(materialInfo.Type, materialTextureInfo.TextureChannel);
+				materialTextureInfo.AddressY = GetTextureAddressMode(materialInfo.Type, materialTextureInfo.TextureChannel);
 
 				materialInfo.SetTextureInfo(materialTextureInfo);
 			}
@@ -588,17 +659,33 @@ static void PostImportSetupStaticMesh(UStaticMesh* StaticMesh)
 	}
 }
 
+struct FTextureImportInfo
+{
+	FString SourceTextureDir;
+	
+	FString OutputTextureDir;
+
+	FString TextureFileName;
+	
+	bool bIsNormalMap = false;
+
+	TEnumAsByte<TextureAddress> AddressX = TextureAddress::TA_Wrap;
+	TEnumAsByte<TextureAddress> AddressY = TextureAddress::TA_Wrap;
+
+	ETextureSourceColorSpace ColorSpace = ETextureSourceColorSpace::Auto;
+};
+
 /**
  * Imports a texture from file. Can be a DDS or a PNG file.
  * @param TextureFilePath The path to the source texture file.
  * @returns The imported texture on success.
  */
-static UTexture* ImportTexture(IAssetTools& AssetTools, const FString& SourceTextureDir, const FString& TextureFileName, const FString& OutputTextureDir, bool bIsNormalMap = false, ETextureSourceColorSpace ColorSpace = ETextureSourceColorSpace::Auto, bool bWarn = true)
+static UTexture* ImportTexture(IAssetTools& AssetTools, const FTextureImportInfo& ImportInfo, bool bWarn = true)
 {
-	const FString textureName = ObjectTools::SanitizeObjectName(TextureFileName);
+	const FString textureName = ObjectTools::SanitizeObjectName(ImportInfo.TextureFileName);
 	const FString textureFileName = FString::Printf(TEXT("T_%s"), *textureName);
 
-	FString textureAssetPath = FString::Format(TEXT("Texture'{0}/{1}.{1}'"), { OutputTextureDir, textureFileName });
+	FString textureAssetPath = FString::Format(TEXT("Texture'{0}/{1}.{1}'"), { ImportInfo.OutputTextureDir, textureFileName });
 
 	TObjectPtr<UTexture> loadedTexture = LoadObject<UTexture>(nullptr, *textureAssetPath, nullptr, LOAD_EditorOnly | LOAD_NoWarn, nullptr);
 
@@ -608,11 +695,11 @@ static UTexture* ImportTexture(IAssetTools& AssetTools, const FString& SourceTex
 	}
 
 	// the importer supports only DDS (cube map) and PNG files
-	FString textureFilePath = FPaths::Combine(SourceTextureDir, TextureFileName + TEXT(".dds"));
+	FString textureFilePath = FPaths::Combine(ImportInfo.SourceTextureDir, ImportInfo.TextureFileName + TEXT(".dds"));
 
 	if (!FPaths::FileExists(textureFilePath))
 	{
-		textureFilePath = FPaths::Combine(SourceTextureDir, TextureFileName + TEXT(".png"));
+		textureFilePath = FPaths::Combine(ImportInfo.SourceTextureDir, ImportInfo.TextureFileName + TEXT(".png"));
 
 		if (!FPaths::FileExists(textureFilePath))
 		{
@@ -627,10 +714,10 @@ static UTexture* ImportTexture(IAssetTools& AssetTools, const FString& SourceTex
 
 	TObjectPtr<UTextureFactory> textureFactory = NewObject<UTextureFactory>(UTextureFactory::StaticClass());
 	textureFactory->bDeferCompression = true;
-	textureFactory->LODGroup = bIsNormalMap ? TextureGroup::TEXTUREGROUP_WorldNormalMap : TextureGroup::TEXTUREGROUP_World;
-	textureFactory->CompressionSettings = bIsNormalMap ? TextureCompressionSettings::TC_Normalmap : TextureCompressionSettings::TC_Default;
-	textureFactory->bUsingExistingSettings = bIsNormalMap;
-	textureFactory->ColorSpaceMode = ColorSpace;
+	textureFactory->LODGroup = ImportInfo.bIsNormalMap ? TextureGroup::TEXTUREGROUP_WorldNormalMap : TextureGroup::TEXTUREGROUP_World;
+	textureFactory->CompressionSettings = ImportInfo.bIsNormalMap ? TextureCompressionSettings::TC_Normalmap : TextureCompressionSettings::TC_Default;
+	textureFactory->bUsingExistingSettings = ImportInfo.bIsNormalMap;
+	textureFactory->ColorSpaceMode = ImportInfo.ColorSpace;
 
 	textureFactory->AddToRoot();
 
@@ -639,7 +726,7 @@ static UTexture* ImportTexture(IAssetTools& AssetTools, const FString& SourceTex
 	assetImportTask->bReplaceExisting = true;
 	assetImportTask->bSave = false;
 	assetImportTask->Filename = textureFilePath;
-	assetImportTask->DestinationPath = OutputTextureDir;
+	assetImportTask->DestinationPath = ImportInfo.OutputTextureDir;
 	assetImportTask->Factory = textureFactory;
 	assetImportTask->DestinationName = textureFileName;
 
@@ -650,7 +737,7 @@ static UTexture* ImportTexture(IAssetTools& AssetTools, const FString& SourceTex
 	textureFactory->CleanUp();
 	textureFactory->RemoveFromRoot();
 
-	if (importedObjects.IsEmpty())
+	if (importedObjects.IsEmpty() || importedObjects[0] == nullptr)
 	{
 		if (bWarn)
 		{
@@ -660,7 +747,32 @@ static UTexture* ImportTexture(IAssetTools& AssetTools, const FString& SourceTex
 		return nullptr;
 	}
 
-	return Cast<UTexture>(importedObjects[0]);
+	UTexture* importedTexture = Cast<UTexture>(importedObjects[0]);
+
+	if (importedTexture->IsA<UTexture2D>())
+	{
+		UTexture2D* texture2D = Cast<UTexture2D>(importedTexture);
+
+		if (texture2D->AddressX != ImportInfo.AddressX)
+		{
+			texture2D->AddressX = ImportInfo.AddressX;
+
+			FProperty* addressModeProperty = FindFProperty<FProperty>(UTexture2D::StaticClass(), GET_MEMBER_NAME_CHECKED(UTexture2D, AddressX));
+			FPropertyChangedEvent addressModeChangedEvent(addressModeProperty);
+			texture2D->PostEditChangeProperty(addressModeChangedEvent);
+		}
+			
+		if (texture2D->AddressY != ImportInfo.AddressY)
+		{
+			texture2D->AddressY = ImportInfo.AddressY;
+
+			FProperty* addressModeProperty = FindFProperty<FProperty>(UTexture2D::StaticClass(), GET_MEMBER_NAME_CHECKED(UTexture2D, AddressY));
+			FPropertyChangedEvent addressModeChangedEvent(addressModeProperty);
+			texture2D->PostEditChangeProperty(addressModeChangedEvent);
+		}
+	}
+
+	return importedTexture;
 }
 
 static UTexture* CreateParallaxMapFromNormalMap(IAssetTools& AssetTools, const FString& SourceTextureDir, const FString& SourceFileName, const FString& OutputTextureDir, bool bSaveSourceParallaxMap)
@@ -680,7 +792,12 @@ static UTexture* CreateParallaxMapFromNormalMap(IAssetTools& AssetTools, const F
 	}
 
 	// try importing from an existing parallax texture
-	TObjectPtr<UTexture> importedHeightmap = ImportTexture(AssetTools, SourceTextureDir, sourceParallaxMapFileName, OutputTextureDir, false, ETextureSourceColorSpace::Linear, false);
+	FTextureImportInfo importInfo;
+	importInfo.SourceTextureDir = SourceTextureDir;
+	importInfo.OutputTextureDir = OutputTextureDir;
+	importInfo.TextureFileName = sourceParallaxMapFileName;
+	importInfo.ColorSpace = ETextureSourceColorSpace::Linear;
+	TObjectPtr<UTexture> importedHeightmap = ImportTexture(AssetTools, importInfo, false);
 
 	if (importedHeightmap)
 	{
@@ -916,6 +1033,47 @@ static void SetMaterialTexture(UMaterialInstanceConstant& Material, const FGravi
 	Material.SetTextureParameterValueEditorOnly(textureParameter, Texture);
 }
 
+static const FGravityMaterialParameterPresets* GetMaterialParameterPresets(const FGravityMaterialInfo& MaterialInfo, int32 TextureChannel)
+{
+	const FGravityMaterialPresetDatabase& materialPresetDatabase = FGravityMaterialPresetDatabase::GetInstance();
+
+	EGravityMaterialParameterPresetType parameterPresetType = materialPresetDatabase.GetPresetType(
+		MaterialInfo.SafeGetStringParameter(EGravityMaterialParameterType::PresetType, TEXT("Unknown")));
+
+	EGravityMaterialWorldLayer materialWorldLayer = EGravityMaterialWorldLayer::Primary;
+	const FString primaryWorldLayerName = materialPresetDatabase.GetWorldLayerName(materialWorldLayer);
+
+	if (!MaterialInfo.Name.StartsWith(primaryWorldLayerName))
+	{
+		materialWorldLayer = EGravityMaterialWorldLayer::Secondary;
+	}
+
+	const FGravityMaterialParameterPresets* presets = nullptr;;
+
+	if (parameterPresetType == EGravityMaterialParameterPresetType::Unknown)
+	{
+		if (materialWorldLayer == EGravityMaterialWorldLayer::Unknown)
+		{
+			// try to get the presets from the main layer
+			materialWorldLayer = EGravityMaterialWorldLayer::Primary;
+		}
+
+		// try to get the parameter from the color texture
+		const FGravityMaterialTextureInfo* albedo = MaterialInfo.GetTextureInfo(TextureChannel);
+		if (albedo)
+		{
+			presets = &materialPresetDatabase.GetPresetForTexture(materialWorldLayer, albedo->Name);
+		}
+	}
+	else
+	{
+		// get preset from the material context
+		presets = &materialPresetDatabase.GetPreset(materialWorldLayer, parameterPresetType);
+	}
+
+	return presets;
+}
+
 static void SetStandardMaterialParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
 {
 	auto HasValidParallaxMapLambda = [](const UMaterialInstanceConstant& Material, int8 Level)
@@ -951,84 +1109,39 @@ static void SetStandardMaterialParameters(UMaterialInstanceConstant& Material, c
 		}
 	}
 
-	const FGravityMaterialPresetDatabase& materialPresetDatabase = FGravityMaterialPresetDatabase::GetInstance();
-	
-	EGravityMaterialParameterPresetType parameterPresetType = materialPresetDatabase.GetPresetType(
-		MaterialInfo.SafeGetStringParameter(EGravityMaterialParameterType::PresetType, TEXT("Unknown")));
-
-	EGravityMaterialWorldLayer materialWorldLayer = EGravityMaterialWorldLayer::Primary;
-	const FString primaryWorldLayerName = materialPresetDatabase.GetWorldLayerName(materialWorldLayer);
-
-	if (!MaterialInfo.Name.StartsWith(primaryWorldLayerName))
+	// Set material parameters from presets if available
+	auto SetMaterialPresetsLambda = [&](int32 LayerIndex, int32 TextureChannel)
 	{
-		materialWorldLayer = EGravityMaterialWorldLayer::Secondary;
-	}
+		bool bIsPrimaryLayer = LayerIndex == 0;
 
-	const FGravityMaterialParameterPresets* presetsL0 = nullptr;
-	const FGravityMaterialParameterPresets* presetsL1 = nullptr;
+		const FGravityMaterialParameterPresets* presets = GetMaterialParameterPresets(MaterialInfo, TextureChannel);
 
-	if (parameterPresetType == EGravityMaterialParameterPresetType::Unknown)
-	{
-		if (materialWorldLayer == EGravityMaterialWorldLayer::Unknown)
+		float metallic = 0.0f;
+		float roughness = 0.0f;
+		float specular = 0.0f;
+
+		if (presets)
 		{
-			// try to get the presets from the main layer
-			materialWorldLayer = EGravityMaterialWorldLayer::Primary;
+			metallic = presets->Metallic;
+			roughness = presets->Roughness;
+			specular = presets->Specular;
+		}
+		else
+		{
+			// Try to get the parameters from the material.
+			metallic = MaterialInfo.SafeGetFloatParameter(bIsPrimaryLayer  ? EGravityMaterialParameterType::Metallic0  : EGravityMaterialParameterType::Metallic1, 0.3f);
+			roughness = MaterialInfo.SafeGetFloatParameter(bIsPrimaryLayer ? EGravityMaterialParameterType::Roughness0 : EGravityMaterialParameterType::Roughness1, 0.7f);
+			specular = MaterialInfo.SafeGetFloatParameter(bIsPrimaryLayer  ? EGravityMaterialParameterType::Specular0  : EGravityMaterialParameterType::Specular1, 0.0f);
 		}
 
-		// try to get the parameter from the color texture
-		const FGravityMaterialTextureInfo* albedoL0 = MaterialInfo.GetTextureInfo(0);
-		const FGravityMaterialTextureInfo* albedoL1 = MaterialInfo.GetTextureInfo(3);
+		Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(*FString::Format(TEXT("Metallic{0}"),  { LayerIndex })), metallic);
+		Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(*FString::Format(TEXT("Roughness{0}"), { LayerIndex })), roughness);
+		Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(*FString::Format(TEXT("Specular{0}"),  { LayerIndex })), specular);
+	};
 
-		if (albedoL0)
-		{
-			presetsL0 = &materialPresetDatabase.GetPresetForTexture(materialWorldLayer, albedoL0->Name);
-		}
-
-		if (albedoL1)
-		{
-			presetsL1 = &materialPresetDatabase.GetPresetForTexture(materialWorldLayer, albedoL1->Name);
-		}
-	}
-	else
-	{
-		// get preset from the material context
-		presetsL0 = &materialPresetDatabase.GetPreset(materialWorldLayer, parameterPresetType);
-		presetsL1 = presetsL0;
-	}
-
-	float metallicL0 = 0.0f;
-	float roughnessL0 = 0.0f;
-	float specularL0 = 0.0f;
-
-	if (!presetsL0)
-	{
-		metallicL0 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Metallic0, 0.3f);
-		roughnessL0 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Roughness0, 0.7f);
-		specularL0 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Specular0, 0.0f);
-	}
-	else
-	{
-		metallicL0 = presetsL0->Metallic;
-		roughnessL0 = presetsL0->Roughness;
-		specularL0 = presetsL0->Specular;
-	}
-
-	float metallicL1 = 0.0f;
-	float roughnessL1 = 0.0f;
-	float specularL1 = 0.0f;
-
-	if (!presetsL1)
-	{
-		metallicL1 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Metallic1, 0.3f);
-		roughnessL1 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Roughness1, 0.7f);
-		specularL1 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Specular1, 0.0f);
-	}
-	else
-	{
-		metallicL1 = presetsL1->Metallic;
-		roughnessL1 = presetsL1->Roughness;
-		specularL1 = presetsL1->Specular;
-	}
+	// Setup metallic, roughness and specular
+	SetMaterialPresetsLambda(0, 0);
+	SetMaterialPresetsLambda(1, 3);
 
 	// configure the material instance
 	FLinearColor colorL0;
@@ -1050,14 +1163,7 @@ static void SetStandardMaterialParameters(UMaterialInstanceConstant& Material, c
 	float emissionBoostL1 = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::EmissionBoost1, 0.0f);
 
 	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Color0")), colorL0);
-	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Metallic0")), metallicL0);
-	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Roughness0")), roughnessL0);
-	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Specular0")), specularL0);
-
 	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Color1")), colorL1);
-	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Metallic1")), metallicL1);
-	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Roughness1")), roughnessL1);
-	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Specular1")), specularL1);
 
 	bool bIsColorEmissiveL0 = emissionBoostL0 > 0.0f && !colorL0.IsAlmostBlack();
 	bool bIsColorEmissiveL1 = emissionBoostL1 > 0.0f && !colorL1.IsAlmostBlack();
@@ -1092,6 +1198,7 @@ static void SetStandardMaterialParameters(UMaterialInstanceConstant& Material, c
 
 	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Layered")), bIsMaterialLayered);
 
+	// Setup alpha test
 	float alphaTestThreshold = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::AlphaTest, 1.0f);
 
 	bool bIsAlphaTestEnabled = EnumHasAnyFlags(MaterialInfo.Flags, EGravityMaterialFlags::AlphaTested) && alphaTestThreshold > 0.0f;
@@ -1100,66 +1207,171 @@ static void SetStandardMaterialParameters(UMaterialInstanceConstant& Material, c
 	Material.BasePropertyOverrides.BlendMode = EBlendMode::BLEND_Masked;
 
 	Material.BasePropertyOverrides.bOverride_OpacityMaskClipValue = bIsAlphaTestEnabled;
-	Material.BasePropertyOverrides.OpacityMaskClipValue = FMath::Min(alphaTestThreshold, 0.96f); // we have to subtract a small value from the threshold due to artefacts of the block compression
 
+	// we have to subtract a small value from the threshold due to artefacts of the block compression
+	Material.BasePropertyOverrides.OpacityMaskClipValue = FMath::Min(alphaTestThreshold, 0.96f);
+
+	// Setup face culling
 	bool bIsTwoSided = !EnumHasAnyFlags(MaterialInfo.Flags, EGravityMaterialFlags::UseFaceCulling);
 
 	Material.BasePropertyOverrides.bOverride_TwoSided = bIsTwoSided;
 	Material.BasePropertyOverrides.TwoSided = true;
 }
 
-/*
+static void SetGlassMaterialParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
+{
+	float refraction = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::IOR, 1.0f);
+	float opacity = FMath::Sqrt(MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Opacity, 0.04f));
+	FLinearColor color0;
+	color0.R = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::ColorR0, 1.0f);
+	color0.G = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::ColorG0, 1.0f);
+	color0.B = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::ColorB0, 1.0f);
+
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Refraction")), refraction);
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Opacity")), opacity);
+	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Color0")), color0);
+}
+
 static void SetSoilMaterialParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
 {
-	UTexture* albedoL1Texture = nullptr;
-	UTexture* albedoL2Texture = nullptr;
-	UTexture* albedoL3Texture = nullptr;
-	UTexture* normalL1Texture = nullptr;
-	UTexture* normalL2Texture = nullptr;
-	UTexture* normalL3Texture = nullptr;
+	UTexture* albedoTexture1 = nullptr;
+	UTexture* albedoTexture2 = nullptr;
+	UTexture* albedoTexture3 = nullptr;
+	UTexture* normalTexture1 = nullptr;
+	UTexture* normalTexture2 = nullptr;
+	UTexture* normalTexture3 = nullptr;
 
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::AlbedoL1)), albedoL1Texture, true);
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::AlbedoL2)), albedoL2Texture, true);
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::AlbedoL3)), albedoL3Texture, true);
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::NormalL1)), normalL1Texture, true);
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::NormalL2)), normalL2Texture, true);
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::NormalL3)), normalL3Texture, true);
+	// Enable layers for the soil material
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture1")), albedoTexture1, true);
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture2")), albedoTexture2, true);
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture3")), albedoTexture3, true);
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture1")), normalTexture1, true);
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture2")), normalTexture2, true);
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture3")), normalTexture3, true);
+	
+	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo(TEXT("UseLayer1")), albedoTexture1 || normalTexture1);
+	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo(TEXT("UseLayer2")), albedoTexture2 || normalTexture2);
+	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo(TEXT("UseLayer3")), albedoTexture3 || normalTexture3);
 
-	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo("UseLayer1"), albedoL1Texture || normalL1Texture);
-	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo("UseLayer2"), albedoL2Texture || normalL2Texture);
-	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo("UseLayer3"), albedoL3Texture || normalL3Texture);
+	// Setup metallic, roughness and specular
+	const FGravityMaterialParameterPresets* presetsL0 = GetMaterialParameterPresets(MaterialInfo, 0);
+	const FGravityMaterialParameterPresets* presetsL1 = GetMaterialParameterPresets(MaterialInfo, 1);
+	const FGravityMaterialParameterPresets* presetsL2 = GetMaterialParameterPresets(MaterialInfo, 2);
+	const FGravityMaterialParameterPresets* presetsL3 = GetMaterialParameterPresets(MaterialInfo, 3);
+
+	// Layout is (L3, L2, L1, L0)
+	FLinearColor metallic(0.2f, 0.2f, 0.2f, 0.2f);
+	FLinearColor roughness(1.0f, 1.0f, 1.0f, 1.0f);
+	FLinearColor specular(0.0f, 0.0f, 0.0f, 0.0f);
+
+	if (presetsL0)
+	{
+		metallic.A  = presetsL0->Metallic;
+		roughness.A = presetsL0->Roughness;
+		specular.A  = presetsL0->Specular;
+	}
+
+	if (presetsL1)
+	{
+		metallic.B  = presetsL1->Metallic;
+		roughness.B = presetsL1->Roughness;
+		specular.B  = presetsL1->Specular;
+	}
+
+	if (presetsL2)
+	{
+		metallic.G  = presetsL2->Metallic;
+		roughness.G = presetsL2->Roughness;
+		specular.G  = presetsL2->Specular;
+	}
+
+	if (presetsL3)
+	{
+		metallic.R  = presetsL3->Metallic;
+		roughness.R = presetsL3->Roughness;
+		specular.R  = presetsL3->Specular;
+	}
+
+	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Metallic")), metallic);
+	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Roughness")), roughness);
+	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Specular")), specular);
 }
 
 static void SetWindowMaterialParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
 {
-	UTexture* texture = nullptr;
-
-	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(*GravityMaterialChannelTypeToString(EGravityMaterialChannelType::InteriorMap)), texture, true);
+	UTexture* texture2 = nullptr;
+	Material.GetTextureParameterValue(FHashedMaterialParameterInfo(TEXT("Texture2")), texture2, true);
+	UTextureCube* interiorTexture = Cast<UTextureCube>(texture2);
 
 	bool bIsLit = false;
 
-	UTextureCube* interiorTexture = Cast<UTextureCube>(texture);
+	if (interiorTexture)
+	{
+		FImage mipImage;
 
-	check(!TEXT("fixme"));
-	//if (interiorTexture)
-	//{
-	//	if (interiorTexture->GetPlatformData()->bSourceMipsAlphaDetectedValid)
-	//	{
-	//		bIsLit = interiorTexture->GetPlatformData()->bSourceMipsAlphaDetected;
-	//	}
-	//}
+		// Windows that are lit use a interior cube texture with an alpha channel.
+		if (interiorTexture->Source.GetMipImage(mipImage, 0))
+		{
+			TArrayView64<FColor> mipData = mipImage.AsBGRA8();
+
+			// The internal textures are pretty small, no need for parallelization.
+			for (const auto& color : mipData)
+			{
+				if (color.A < 0.9f)
+				{
+					bIsLit = true;
+					break;
+				}
+			}
+		}
+	}
 
 	Material.SetStaticSwitchParameterValueEditorOnly(FMaterialParameterInfo("IsLit"), bIsLit);
 }
-*/
+
+static void SetDecalMaterialParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
+{
+	float metallic = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Metallic0, 0.3f);
+	float specular = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Specular0, 0.5f);
+	float roughness = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Roughness0, 0.0f);
+	float opacity = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::Opacity, 1.0f);
+
+	FLinearColor color;
+	color.R = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::ColorR0, 1.0f);
+	color.G = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::ColorG0, 1.0f);
+	color.B = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::ColorB0, 1.0f);
+
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Metallic")), metallic);
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Specular")), specular);
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Roughness")), roughness);
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Opacity")), opacity);
+	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("Color")), color);
+}
+
+static void SetGravityCrystalParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
+{
+	FLinearColor billboardPosition;
+	billboardPosition.R = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::PositionOffsetX, 0.0f);
+	billboardPosition.G = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::PositionOffsetY, 0.0f);
+	billboardPosition.B = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::PositionOffsetZ, 0.0f);
+
+	// The scale of the billboard is the size of the mesh, enlarged by 30%
+	float billboardScale = MaterialInfo.SafeGetFloatParameter(EGravityMaterialParameterType::BoundingSphereRadius, 1.0f) * 1.3f;
+
+	Material.SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("BillboardPosition")), billboardPosition);
+	Material.SetScalarParameterValueEditorOnly(FMaterialParameterInfo(TEXT("BillboardScale")), billboardScale);
+}
 
 static void SetMaterialParameters(UMaterialInstanceConstant& Material, const FGravityMaterialInfo& MaterialInfo)
 {
 	switch (MaterialInfo.Type)
 	{
-	case EGravityMaterialType::Standard:	{ SetStandardMaterialParameters(Material, MaterialInfo); } break;
-	//case EGravityMaterialType::Window:		{ SetWindowMaterialParameters(Material, MaterialInfo);	 } break;
-	//case EGravityMaterialType::Soil:		{ SetSoilMaterialParameters(Material, MaterialInfo);	 } break;
+	case EGravityMaterialType::Standard:		 { SetStandardMaterialParameters(Material, MaterialInfo); } break;
+	case EGravityMaterialType::Glass:			 { SetGlassMaterialParameters(Material, MaterialInfo);	  } break;
+	case EGravityMaterialType::Soil:			 { SetSoilMaterialParameters(Material, MaterialInfo);	  } break;
+	case EGravityMaterialType::Window:			 { SetWindowMaterialParameters(Material, MaterialInfo);	  } break;
+	case EGravityMaterialType::Decal:			 { SetDecalMaterialParameters(Material, MaterialInfo);	  } break;	
+	case EGravityMaterialType::GravityCrystal:	 { SetGravityCrystalParameters(Material, MaterialInfo);	  } break;
 	}
 
 	Material.UpdateStaticPermutation();
@@ -1171,7 +1383,101 @@ static bool IsMaterialTypeSupported(EGravityMaterialType MaterialType)
 	return MaterialType != EGravityMaterialType::Unknown;
 }
 
-static void SetupMaterials(IAssetTools& AssetTools, UStaticMesh* StaticMesh, const FGravityAssetImportTask& AssetImportTask, const FGravityAssetInfo& GravityAssetInfo, FGravityAssetImportContext& ImportContext)
+static UMaterialInstanceConstant* SetupMaterial(IAssetTools& AssetTools, FGravityAssetImportContext& ImportContext, const FGravityAssetImportTask& AssetImportTask, const FGravityMaterialInfo& MaterialInfo)
+{
+	TObjectPtr<UMaterialInstanceConstant> materialInstance = CreateMaterialInstance(AssetTools, ImportContext.GravityMaterialRegistry, MaterialInfo, AssetImportTask.BaseMaterialDir, AssetImportTask.OutputMaterialDir);
+
+	if (!materialInstance)
+	{
+		// material instance creation failed
+		return nullptr;
+	}
+
+	ImportContext.PurgedPackages.Add(materialInstance->GetPackage());
+
+	// import textures and create parallax maps for the material
+	TArray<TPair<TObjectPtr<UTexture>, FGravityMaterialTextureInfo>> materialTextures;
+
+	for (const auto& entry : MaterialInfo.GetTextureInfos())
+	{
+		const FGravityMaterialTextureInfo& textureInfo = entry.Value;
+
+		FTextureImportInfo importInfo;
+		importInfo.SourceTextureDir = AssetImportTask.SourceTextureDir;
+		importInfo.OutputTextureDir = AssetImportTask.OutputTextureDir;
+		importInfo.TextureFileName = textureInfo.Name;
+		importInfo.bIsNormalMap = textureInfo.bIsNormalMap;
+		importInfo.AddressX = textureInfo.AddressX;
+		importInfo.AddressY = textureInfo.AddressY;
+		TObjectPtr<UTexture> importedTexture = ImportTexture(AssetTools, importInfo);
+
+		if (importedTexture)
+		{
+			materialTextures.Emplace(importedTexture, textureInfo);
+			ImportContext.PurgedPackages.Add(importedTexture->GetPackage());
+
+			TObjectPtr<UTexture2D> importedTexture2D = Cast<UTexture2D>(importedTexture);
+
+			if (importedTexture2D)
+			{
+				// check if we need to enable POM for this material.
+				// we only enable POM if the texture of the normal map channels has with a valid alpha channel and the POM parametes of the material are not null.
+				if (MaterialInfo.Type == EGravityMaterialType::Standard)
+				{
+					// the Heigh map is stored in the alpha channel of the normal map and the bias value is inside the material definition.
+					EGravityMaterialParameterType parallaxParameterChannel = EGravityMaterialParameterType::Unknown;
+					int32 parallaxTextureChannel = -1;
+
+					switch (textureInfo.TextureChannel)
+					{
+					case 1: // Normal 0
+					{
+						parallaxParameterChannel = EGravityMaterialParameterType::ParallaxHeight0;
+						parallaxTextureChannel = 5;
+					}break;
+					case 4: // Normal 1
+					{
+						parallaxParameterChannel = EGravityMaterialParameterType::ParallaxHeight1;
+						parallaxTextureChannel = 6;
+					}break;
+					}
+
+					if (parallaxParameterChannel != EGravityMaterialParameterType::Unknown)
+					{
+						bool bIsParallaxEnabled = MaterialInfo.SafeGetFloatParameter(parallaxParameterChannel, 0.0f) > 0.0f;
+						if (bIsParallaxEnabled)
+						{
+							// create the parallax texture from the source file. We cannot use the normal texture asset because it is encoded as BC5 without alpha.
+							TObjectPtr<UTexture> importedHeightmap =
+								CreateParallaxMapFromNormalMap(AssetTools, AssetImportTask.SourceTextureDir, textureInfo.Name, AssetImportTask.OutputTextureDir, ImportContext.bSaveExtractedParallaxMaps);
+
+							if (importedHeightmap)
+							{
+								ImportContext.PurgedPackages.Add(importedHeightmap->GetPackage());
+
+								FGravityMaterialTextureInfo parallaxTextureInfo = textureInfo;
+								parallaxTextureInfo.TextureChannel = parallaxTextureChannel;
+
+								materialTextures.Emplace(importedHeightmap, MoveTemp(parallaxTextureInfo));
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for (const auto& entry : materialTextures)
+	{
+		SetMaterialTexture(*materialInstance, entry.Value, entry.Key);
+	}
+
+	SetMaterialParameters(*materialInstance, MaterialInfo);
+
+	return materialInstance;
+}
+
+static void SetupStaticMeshMaterials(IAssetTools& AssetTools, UStaticMesh* StaticMesh, const FGravityAssetImportTask& AssetImportTask, const FGravityAssetInfo& GravityAssetInfo, FGravityAssetImportContext& ImportContext)
 {
 	TArray<FStaticMaterial>& staticMaterials = StaticMesh->GetStaticMaterials();
 
@@ -1188,14 +1494,14 @@ static void SetupMaterials(IAssetTools& AssetTools, UStaticMesh* StaticMesh, con
 		FString materialSlotName = staticMaterial.MaterialSlotName.ToString();
 		const FGravityMaterialInfo* gravityMaterialInfo = GravityAssetInfo.MaterialInfos.Find(materialSlotName);
 
+		SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("SetupMaterials_CreateMaterial", "Creating \"{0}\"..."), FText::FromString(materialSlotName)));
+
 		if (!gravityMaterialInfo)
 		{
 			UE_LOG(LogGravityAssetTools, Warning, TEXT("Could not find material info for material slot '%s' of mesh '%s'."), *materialSlotName, *(StaticMesh->GetName()));
 
 			continue;
 		}
-
-		SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("SetupMaterials_CreateMaterial", "Creating \"{0}\"..."), FText::FromString(materialSlotName)));
 
 		if (!IsMaterialTypeSupported(gravityMaterialInfo->Type))
 		{
@@ -1204,90 +1510,52 @@ static void SetupMaterials(IAssetTools& AssetTools, UStaticMesh* StaticMesh, con
 			continue;
 		}
 
-		TObjectPtr<UMaterialInstanceConstant> materialInstance = CreateMaterialInstance(AssetTools, ImportContext.GravityMaterialRegistry, *gravityMaterialInfo, AssetImportTask.BaseMaterialDir, AssetImportTask.OutputMaterialDir);
-
-		if (!materialInstance)
+		TObjectPtr<UMaterialInstanceConstant> materialInstance = SetupMaterial(AssetTools, ImportContext, AssetImportTask, *gravityMaterialInfo);
+		if (materialInstance)
 		{
-			// material instance creation failed
-			continue;
+			staticMaterial.MaterialInterface = materialInstance;
 		}
+	}
+}
 
-		ImportContext.PurgedPackages.Add(materialInstance->GetPackage());
+static void SetupDecalMaterials(IAssetTools& AssetTools, UStaticMesh* StaticMesh, const FGravityAssetImportTask& AssetImportTask, const FGravityAssetInfo& GravityAssetInfo, FGravityAssetImportContext& ImportContext)
+{
+	TArray<FGravityMaterialInfo> decalMaterialInfos;
 
-		staticMaterial.MaterialInterface = materialInstance;
-
-		// import textures and create parallax maps for the material
-		TArray<TPair<TObjectPtr<UTexture>, FGravityMaterialTextureInfo>> materialTextures;
-
-		for (const auto& entry : gravityMaterialInfo->GetTextureInfos())
+	for (const auto& entry : GravityAssetInfo.MaterialInfos)
+	{
+		const FGravityMaterialInfo& materialInfo = entry.Value;
+		if (materialInfo.Type == EGravityMaterialType::Decal)
 		{
-			const FGravityMaterialTextureInfo& textureInfo = entry.Value;
+			decalMaterialInfos.Emplace(materialInfo);
+		}
+	}
 
-			TObjectPtr<UTexture> importedTexture = ImportTexture(AssetTools, AssetImportTask.SourceTextureDir, textureInfo.Name, AssetImportTask.OutputTextureDir, textureInfo.bIsNormalMap);
+	if (!decalMaterialInfos.IsEmpty())
+	{
+		FScopedSlowTask SlowTask(decalMaterialInfos.Num(), LOCTEXT("SetupDecalMaterialsSlowTask", "SetupDecalMaterials"));
+		SlowTask.MakeDialog();
 
-			if (importedTexture)
+		for (const auto& materialInfo : decalMaterialInfos)
+		{
+			SlowTask.EnterProgressFrame(1, FText::Format(LOCTEXT("SetupDecalMaterials_CreateMaterial", "Creating Decal \"{0}\"..."), FText::FromString(materialInfo.Name)));
+
+			TObjectPtr<UMaterialInstanceConstant> materialInstance = SetupMaterial(AssetTools, ImportContext, AssetImportTask, materialInfo);
+			if (!materialInstance)
 			{
-				materialTextures.Emplace(importedTexture, textureInfo);
-				ImportContext.PurgedPackages.Add(importedTexture->GetPackage());
-
-				TObjectPtr<UTexture2D> importedTexture2D = Cast<UTexture2D>(importedTexture);
-
-				if (importedTexture2D)
-				{
-					// check if we need to enable POM for this material.
-					// we only enable POM if the texture of the normal map channels has with a valid alpha channel and the POM parametes of the material are not null.
-					if (gravityMaterialInfo->Type == EGravityMaterialType::Standard)
-					{
-						// the Heigh map is stored in the alpha channel of the normal map and the bias value is inside the material definition.
-						EGravityMaterialParameterType parallaxParameterChannel = EGravityMaterialParameterType::Unknown;
-						int32 parallaxTextureChannel = -1;
-
-						switch (textureInfo.TextureChannel)
-						{
-						case 1: // Normal 0
-						{
-							parallaxParameterChannel = EGravityMaterialParameterType::ParallaxHeight0;
-							parallaxTextureChannel = 5;
-						}break;
-						case 4: // Normal 1
-						{
-							parallaxParameterChannel = EGravityMaterialParameterType::ParallaxHeight1;
-							parallaxTextureChannel = 6;
-						}break;
-						}
-
-						if (parallaxParameterChannel != EGravityMaterialParameterType::Unknown)
-						{
-							bool bIsParallaxEnabled = gravityMaterialInfo->SafeGetFloatParameter(parallaxParameterChannel, 0.0f) > 0.0f;
-							if (bIsParallaxEnabled)
-							{
-								// create the parallax texture from the source file. We cannot use the normal texture asset because it is encoded as BC5 without alpha.
-								TObjectPtr<UTexture> importedHeightmap =
-									CreateParallaxMapFromNormalMap(AssetTools, AssetImportTask.SourceTextureDir, textureInfo.Name, AssetImportTask.OutputTextureDir, ImportContext.bSaveExtractedParallaxMaps);
-
-								if (importedHeightmap)
-								{
-									ImportContext.PurgedPackages.Add(importedHeightmap->GetPackage());
-
-									FGravityMaterialTextureInfo parallaxTextureInfo = textureInfo;
-									parallaxTextureInfo.TextureChannel = parallaxTextureChannel;
-
-									materialTextures.Emplace(importedHeightmap, MoveTemp(parallaxTextureInfo));
-								}
-							}
-						}
-					}
-				}
+				UE_LOG(LogGravityAssetTools, Warning, TEXT("Failed to create decal material '%s' for mesh '%s'."), *materialInfo.Name, *(StaticMesh->GetName()));
 			}
 		}
-
-		for (const auto& entry : materialTextures)
-		{
-			SetMaterialTexture(*materialInstance, entry.Value, entry.Key);
-		}
-
-		SetMaterialParameters(*materialInstance, *gravityMaterialInfo);
 	}
+}
+
+static void SetupMaterials(IAssetTools& AssetTools, UStaticMesh* StaticMesh, const FGravityAssetImportTask& AssetImportTask, const FGravityAssetInfo& GravityAssetInfo, FGravityAssetImportContext& ImportContext)
+{
+	// Create materials for all material slots of the mesh.
+	SetupStaticMeshMaterials(AssetTools, StaticMesh, AssetImportTask, GravityAssetInfo, ImportContext);
+
+	// Create decal materials for sockets of the mesh.
+	SetupDecalMaterials(AssetTools, StaticMesh, AssetImportTask, GravityAssetInfo, ImportContext);
 }
 
 static void MakeObjectPurgeable(UObject* InObject)
@@ -1314,7 +1582,7 @@ static void MakePackagePurgeable(UPackage* InPackage)
 
 FString UGravityAssetTools::GetVersionString()
 {
-	return TEXT("1.0.0");
+	return TEXT("1.1.0");
 }
 
 bool UGravityAssetTools::IsImportDirectoryValid(const FString& ImportDir, FString& OutFailReason)
@@ -1407,7 +1675,11 @@ int32 UGravityAssetTools::ImportAssetTasks(const TArray<FGravityAssetImportTask>
 		// check if all static meshes are imported already
 		bool bAssetRequiresReimport = false;
 		
-		if (!ImportContext.bPatchAssets)
+		if (ImportContext.bPatchAssets)
+		{
+			bAssetRequiresReimport = !gravityAssetInfo->MeshNames.IsEmpty();
+		}
+		else
 		{
 			for (const auto& meshFilename : gravityAssetInfo->MeshNames)
 			{
@@ -1420,10 +1692,6 @@ int32 UGravityAssetTools::ImportAssetTasks(const TArray<FGravityAssetImportTask>
 				}
 			}
 		}
-		else
-		{
-			bAssetRequiresReimport = !gravityAssetInfo->MeshNames.IsEmpty();
-		}
 
 		if (bAssetRequiresReimport)
 		{
@@ -1431,7 +1699,7 @@ int32 UGravityAssetTools::ImportAssetTasks(const TArray<FGravityAssetImportTask>
 		}
 	}
 
-	FScopedSlowTask SlowTask(assetImportInfos.Num(), LOCTEXT("ImportSlowTask", "Import"));
+	FScopedSlowTask SlowTask(assetImportInfos.Num(), LOCTEXT("ImportSlowTask", "Import Assets"));
 	SlowTask.MakeDialog();
 
 	TObjectPtr<UFbxImportUI> fbxImportUI = NewObject<UFbxImportUI>();

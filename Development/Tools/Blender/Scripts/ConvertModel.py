@@ -5,6 +5,7 @@ import os.path
 import bmesh
 import math
 import mathutils
+import zlib
 
 class text_color:
     red = '\033[91m'
@@ -487,7 +488,7 @@ class model_converter:
             
         return scene_meshes
 
-    def collect_debris_meshes(self, material_infos):
+    def collect_debris_meshes(self):
         debris_sets = []
         
         # first collect information about the debris sets from the armature
@@ -616,9 +617,12 @@ class model_converter:
             else:
                 create_exception(f'Cannot build locator mesh for "{mesh.name}".')
 
-    def reduce_mesh_materials(self, meshes, material_infos):
+    def reduce_mesh_materials(self, model, meshes):
         log_message(message_type.info, 'Reducing number of mesh materials...')
         
+        with open(model.source_material_info_filepath, 'r') as file:
+            material_infos = json.load(file)
+
         used_materials = []
         
         # remove unused material infos
@@ -642,7 +646,7 @@ class model_converter:
         for material_name in material_infos.keys():
             if material_name.lower() in used_materials:
                 used_material_infos[material_name] = material_infos[material_name]
-                
+
         # remove duplicate materials
         duplicate_materials = []
         
@@ -682,10 +686,61 @@ class model_converter:
                         
                 for node in removed_image_nodes:
                     material.node_tree.nodes.remove(node)
-        
-        return used_material_infos
 
-    def merge_meshes(self, meshes, merged_mesh_name):
+        return used_material_infos        
+
+    def adjust_material_parameters(self, mesh, material_infos):
+        for material_slot_index in range(len(mesh.material_slots)):
+            material_slot = mesh.material_slots[material_slot_index]
+
+            material_type = ''
+            if material_slot.name in material_infos:
+                material_info = material_infos[material_slot.name]
+                material_type = material_info['Type']
+
+            if material_type == '30':
+                if bpy.context.mode != 'EDIT_MESH':
+                    bpy.ops.object.editmode_toggle()
+
+                bpy.context.object.active_material_index = material_slot_index
+
+                # Select faces with the assigned material.
+                bpy.ops.mesh.select_all(action='DESELECT')
+                bpy.ops.object.material_slot_select()
+                bpy.ops.object.editmode_toggle()
+
+                vertices = []
+                for vertex in mesh.data.vertices:
+                    if vertex.select:
+                        # Remapped to UE coord system
+                        vertices.append(mathutils.Vector((vertex.co.x, vertex.co.z, vertex.co.y)))
+
+                # Compute the center of the bounding sphere.
+                max_bound = mathutils.Vector(vertices[0])
+                min_bound = mathutils.Vector(vertices[0])
+
+                for vertex in vertices:
+                    max_bound.x = max(max_bound.x, vertex.x)
+                    max_bound.y = max(max_bound.y, vertex.y)
+                    max_bound.z = max(max_bound.z, vertex.z)
+
+                    min_bound.x = min(min_bound.x, vertex.x)
+                    min_bound.y = min(min_bound.y, vertex.y)
+                    min_bound.z = min(min_bound.z, vertex.z)
+
+                sphere_center = (min_bound + max_bound) * 0.5
+
+                sphere_radius = 0.0
+                for vertex in vertices:
+                    sphere_radius = max(sphere_radius, (vertex - sphere_center).length)
+
+                if vertices:
+                    if 'Parameters' not in material_info:
+                        material_info['Parameters'] = []
+
+                    material_info['Parameters'].extend([ round(sphere_center.x, 3), round(sphere_center.y, 3), round(sphere_center.z, 3), round(sphere_radius, 3) ])
+
+    def merge_meshes(self, material_infos, meshes, merged_mesh_name):
         bpy.ops.object.select_all(action='DESELECT')
         
         for mesh in meshes:
@@ -713,7 +768,11 @@ class model_converter:
             bpy.context.view_layer.objects.active = merged_mesh         
         
         bpy.ops.object.select_all(action='DESELECT')
-        
+
+        # update mesh dependent materials parameters
+        if merged_mesh is not None:
+            self.adjust_material_parameters(merged_mesh, material_infos)
+
         return merged_mesh
 
     def split_nanite_mesh_set(self, meshes, material_infos):
@@ -782,20 +841,17 @@ class model_converter:
             mesh_sections.extend(bpy.context.selected_objects)
             
             bpy.ops.object.editmode_toggle()
-        
+
         return mesh_sections
 
     def create_nanite_meshes(self, model):
         log_message(message_type.info, 'Creating nanite meshes...')
-        
-        # adjust materials
-        with open(model.source_material_info_filepath, 'r') as file:
-            material_infos = json.load(file)
 
         # collects meshes for lod0, lod1 and grass
         model_meshes = self.collect_meshes()
         
-        material_infos = self.reduce_mesh_materials(model_meshes, material_infos)
+        # adjust materials
+        material_infos = self.reduce_mesh_materials(model, model_meshes)
         
         model.model_material_info.update(material_infos)
         
@@ -804,7 +860,7 @@ class model_converter:
         
         # merge all meshes into a single mesh
         if opaque_meshes:
-            merged_opaque_mesh = self.merge_meshes(opaque_meshes, f'{model.model_name}_opaque')
+            merged_opaque_mesh = self.merge_meshes(material_infos, opaque_meshes, f'{model.model_name}_opaque')
             
             # split nanite meshes into submeshes if number of materials exceeds the max allowed number of nanite sections
             nanite_mesh_sections = self.separate_nanite_mesh(merged_opaque_mesh)
@@ -812,26 +868,23 @@ class model_converter:
             model.nanite_meshes.extend(nanite_mesh_sections)
             
         if translucent_meshes:
-            merged_translucent_mesh = self.merge_meshes(translucent_meshes, f'{model.model_name}_translucent')
+            merged_translucent_mesh = self.merge_meshes(material_infos, translucent_meshes, f'{model.model_name}_translucent')
             model.regular_meshes.append(merged_translucent_mesh)
             
         if grass_locator_meshes:
             # add polygons to the grass locator meshes so that unreal is able to import them
             self.build_grass_locator_meshes(grass_locator_meshes)
             
-            merged_grass_locator_mesh = self.merge_meshes(grass_locator_meshes, f'{model.model_name}_grass_locator')
+            merged_grass_locator_mesh = self.merge_meshes(material_infos, grass_locator_meshes, f'{model.model_name}_grass_locator')
             model.regular_meshes.append(merged_grass_locator_mesh)
             
     def create_debris_nanite_meshes(self, model):
         log_message(message_type.info, 'Creating nanite meshes for debris...')
         
-        # adjust materials
-        with open(model.source_material_info_filepath, 'r') as file:
-            material_infos = json.load(file)
-
-        debris_sets = self.collect_debris_meshes(material_infos)
+        debris_sets = self.collect_debris_meshes()
         
-        material_infos = self.reduce_mesh_materials([ mesh for debris in debris_sets for mesh in debris.meshes ], material_infos)
+        # adjust materials
+        material_infos = self.reduce_mesh_materials(model, [ mesh for debris in debris_sets for mesh in debris.meshes ])
     
         model.model_material_info.update(material_infos)
     
@@ -844,14 +897,14 @@ class model_converter:
             debris_cluster.name = debris.name
             
             if opaque_meshes:
-                merged_opaque_mesh = self.merge_meshes(opaque_meshes, f'{model.model_name}_opaque')
+                merged_opaque_mesh = self.merge_meshes(material_infos, opaque_meshes, f'{model.model_name}_opaque')
                 nanite_mesh_sections = self.separate_nanite_mesh(merged_opaque_mesh)
                 model.nanite_meshes.extend(nanite_mesh_sections)
                 
                 debris_cluster.meshes.extend([mesh for mesh in nanite_mesh_sections])
             
             if translucent_meshes:
-                merged_translucent_mesh = self.merge_meshes(translucent_meshes, f'{model.model_name}_translucent')
+                merged_translucent_mesh = self.merge_meshes(material_infos, translucent_meshes, f'{model.model_name}_translucent')
                 model.regular_meshes.append(merged_translucent_mesh)
                 
                 debris_cluster.meshes.append(merged_translucent_mesh)
@@ -860,7 +913,7 @@ class model_converter:
                 # add polygons to the branch and grass locator meshes so that unreal is able to import them
                 self.build_grass_locator_meshes(grass_locator_meshes)
             
-                merged_grass_locator_mesh = self.merge_meshes(grass_locator_meshes, f'{model.model_name}_grass_locator')
+                merged_grass_locator_mesh = self.merge_meshes(material_infos, grass_locator_meshes, f'{model.model_name}_grass_locator')
                 model.regular_meshes.append(merged_grass_locator_mesh)
 
                 debris_cluster.meshes.append(merged_grass_locator_mesh)
@@ -935,14 +988,14 @@ class model_converter:
     def collect_object_locators(self):
         object_locators = []
         
-        re_light_parameters_pattern = re.compile(rf'(PL\d*)-([\d|\.]*)-([\d|\.]*)-([\d|\.]*)-([\d|\.]*)-([\d|\.]*)-([\d|\.]*)-([\d|\.]*)-([\d|\.]*)')
+        re_light_parameters_pattern = re.compile(rf'.*(PL\d*)-([\d|\.]+)-([\d|\.]+)-([\d|\.]+)-([\d|\.]+)-([\d|\.]+)-([\d|\.]+)-([\d|\.]+)-([\d|\.]+)')
         
         for object in bpy.data.objects:
             if object.type != 'EMPTY':
                 continue
-            
+
             object_name_lower = object.name.lower()
-            
+
             if 'decallocator' in object_name_lower:
                 decal = decal_locator()
                 decal.name = object.name
@@ -955,13 +1008,13 @@ class model_converter:
                 light.is_directional = True
                 light.matrix_world = object.matrix_world
                 object_locators.append(light)
-            elif object_name_lower.startswith('pl'):
+            elif 'pl' in object_name_lower:
                 light_parameters = re_light_parameters_pattern.match(object.name)
                 
                 if light_parameters:
                     if light_parameters[7] != light_parameters[8] or light_parameters[7] != light_parameters[9]:
                         raise create_exception(f'Light "{object.name}" has a non uniform scale.')
-                    
+
                     light = light_locator()
                     light.name = light_parameters[1]
                     light.matrix_world = object.matrix_world
@@ -984,18 +1037,78 @@ class model_converter:
         
         return object_locators
 
+    def collect_decal_materials(self, model, object_locators):
+        decal_locators = {}
+
+        for locator in object_locators:
+            if locator.type == 'DECAL':
+                decal_locators[locator.name.lower()] = locator
+
+        decal_material_infos = {}
+
+        if decal_locators:
+            with open(model.source_material_info_filepath, 'r') as file:
+                material_infos = json.load(file)
+
+            for material_name, material_info in material_infos.items():
+                for decal_locator_name in decal_locators.keys():
+                    if material_name.lower() in decal_locator_name:
+                        # The locator names have model locality. We need to create a hash value as a prefix for the material
+                        # and decal names to be able to differentiate them during import.
+                        crc32 = hex(zlib.crc32(json.dumps(material_info).encode()))[2:]
+
+                        decal_locator = decal_locators[decal_locator_name]
+                        decal_locator.material_name = f'{decal_locator.name} {crc32}'
+
+                        decal_material_infos[decal_locator.material_name] = material_info
+
+                        # Continue with the next material
+                        break
+
+        return decal_material_infos
+
     def create_sockets(self, model):
         log_message(message_type.info, 'Creating sockets...')
         
         object_locators = self.collect_object_locators()
         
+        # collect decal materials
+        if object_locators:
+            decal_material_infos = self.collect_decal_materials(model, object_locators)
+            model.model_material_info.update(decal_material_infos)
+
         for locator in object_locators:
+            scale_x = 1.0
+            scale_y = 1.0
+            scale_z = 1.0
+
+            scale_matrix = mathutils.Matrix.Diagonal((0, 0, 0, 1))
+
+            if locator.type == 'DECAL':
+                # Extract the decal scale from material
+                decal_material = decal_material_infos[locator.material_name]
+                scale_z *= decal_material['Parameters'][0]
+                scale_y *= decal_material['Parameters'][1]
+                scale_x *= decal_material['Parameters'][2]
+
+                # Alight the locator with the projection direction (positive X) of the decal
+                scale_matrix[2][0] = -scale_x # GR X -> UE -Z
+                scale_matrix[1][1] =  scale_y # GR Y -> UE  Y
+                scale_matrix[0][2] =  scale_z # GR Z -> UE  X
+            else:
+                # Align the locator with the local coord system of the submodel
+                scale_matrix[0][0] = -scale_x # GR X -> UE -X
+                scale_matrix[1][1] = -scale_y # GR Y -> UE -Y
+                scale_matrix[2][2] =  scale_z # GR Z -> UE  Z
+
+            locator.matrix_world = locator.matrix_world @ scale_matrix
+
             bpy.ops.object.empty_add(type='PLAIN_AXES', align='WORLD')
             socket = bpy.context.object
             socket.name = f'SOCKET_{locator.name}'
             socket.matrix_world = locator.matrix_world
             locator.socket = socket
-        
+
         if object_locators:    
             # attach the sockets to one of the meshes
             if model.nanite_meshes:
@@ -1014,7 +1127,7 @@ class model_converter:
             bpy.ops.object.select_all(action='DESELECT')
             
             model.object_locators = object_locators
-            
+
         log_message(message_type.info, f'\tNumber of object locators: {len(object_locators)}')
 
     def convert_model(self, model, output_model_dir):    
