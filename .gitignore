@@ -72,7 +72,13 @@ Intermediate/*
 Plugins/*/Intermediate/*
 Plugins/Editor/*/Intermediate/*
 
-# Cache files for the editor to use
-DerivedDataCache/*
-FBX
-*.zip
+# Developer content
+Developers
+
+# DLSS dependencies
+!Plugins/DLSS/Source/ThirdParty/**/*.lib
+!Plugins/DLSS/Binaries/ThirdParty
+!Plugins/DLSS/Binaries/ThirdParty/**/*.dll
+
+# LFS folderstore
+!Development/Tools/lfs-folderstore/*.exe

@@ -40,6 +40,8 @@ public class GravityTools : ModuleRules
 				"UnrealEd",
 				"RenderCore",
 				"RHI",
+				"Projects",
+				"ImageCore",
 			}
 			);
 		
