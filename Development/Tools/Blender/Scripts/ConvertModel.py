@@ -206,7 +206,7 @@ class model_converter:
         self.check_app_version()
 
     def check_app_version(self):
-        required_major_version, required_minor_version = ( 4, 4 )
+        required_major_version, required_minor_version = ( 4, 5 )
         major_version, minor_version, _ = bpy.app.version
 
         if major_version != required_major_version or minor_version != required_minor_version:
