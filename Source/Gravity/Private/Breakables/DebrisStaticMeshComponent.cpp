@@ -6,7 +6,7 @@ UDebrisStaticMeshComponent::UDebrisStaticMeshComponent()
 	: DebrisLifetime(5.0f)
 	, DebrisDespawnDuration(2.0f)
 	, bIsDispawning(false)
-	, bIsDebrisAlife(true)
+	, bIsDebrisAlive(true)
 {
 	DebrisStartDespawnTimeout = DebrisLifetime;
 	DebrisDespawnTimeout = DebrisDespawnDuration;
@@ -70,13 +70,13 @@ void UDebrisStaticMeshComponent::OnEndDespawn()
 	SetVisibility(false, false);
 	SetComponentTickEnabled(false);
 
-	bIsDebrisAlife = false;
+	bIsDebrisAlive = false;
 	bIsDispawning = false;
 }
 
 void UDebrisStaticMeshComponent::DespawnImmediately()
 {
-	if (bIsDebrisAlife)
+	if (bIsDebrisAlive)
 	{
 		OnBeginDespawn();
 		OnEndDespawn();

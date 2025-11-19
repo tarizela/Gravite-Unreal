@@ -14,7 +14,7 @@ public:
 
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	bool IsDebrisAlife() const { return bIsDebrisAlife; }
+	bool IsDebrisAlive() const { return bIsDebrisAlive; }
 
 	void SetDebrisLifetime(float InLifetime) { DebrisLifetime = InLifetime; }
 	void SetDebrisDespawnDuration(float InTimeout) { DebrisDespawnDuration = InTimeout; }
@@ -54,5 +54,5 @@ private:
 	bool bIsDispawning;
 
 	// True if the debris is still being simulated and rendered.
-	bool bIsDebrisAlife;
+	bool bIsDebrisAlive;
 };

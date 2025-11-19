@@ -21,7 +21,7 @@ void ADebrisStaticMeshActor::TickActor(float DeltaTime, ELevelTick TickType, FAc
 
 	for (const UDebrisStaticMeshComponent* debrisComponent : DebrisStaticMeshComponents)
 	{
-		if (debrisComponent->IsDebrisAlife())
+		if (debrisComponent->IsDebrisAlive())
 		{
 			bHasAlifeDebrisComponents = true;
 			break;
